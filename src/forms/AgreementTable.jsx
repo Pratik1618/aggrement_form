@@ -63,8 +63,8 @@ const FileLink = ({ file, label, type }) => {
       // Check if it's a real File object or demo data
       if (file instanceof File) {
         // Real file - create object URL
-        const url = URL.createObjectURL(file);
-        window.open(url, '_blank');
+      const url = URL.createObjectURL(file);
+      window.open(url, '_blank');
       } else if (file.name && file.size) {
         // Demo data - show file info
         alert(`Demo File: ${file.name}\nSize: ${file.size}\nType: ${type}\n\nThis is demo data. In a real application, this would open the actual file.`);
@@ -97,19 +97,19 @@ const DocumentLinks = ({ uploadStatuses, documents }) => {
         const file = uploadStatuses[doc.type]?.file;
         
         return (
-          <div key={doc.type}>
+        <div key={doc.type}>
             {isUploaded && file ? (
-              <FileLink 
+          <FileLink 
                 file={file} 
-                label={doc.label} 
-                type={doc.type}
-              />
+            label={doc.label} 
+            type={doc.type}
+          />
             ) : (
               <span className="text-gray-400 text-xs">
                 {doc.label}: Not uploaded
               </span>
             )}
-          </div>
+        </div>
         );
       })}
     </div>
@@ -774,20 +774,38 @@ function DetailsModal({ open, onClose, agreement, onPriorityChange, onStatusChan
                   // Check both importantClauses and clauses fields with fallbacks
                   const importantClauses = agreement.originalAgreement?.importantClauses || agreement.importantClauses;
                   const clauses = agreement.originalAgreement?.clauses || agreement.clauses;
+                  const uploadStatuses = agreement.originalAgreement?.uploadStatuses || agreement.uploadStatuses;
                   
                   // Combine both clause types
                   const allClauses = [];
                   
                   if (importantClauses && Array.isArray(importantClauses)) {
+                    console.log("=== DETAILS MODAL - PROCESSING IMPORTANT CLAUSES ===");
                     console.log("Processing importantClauses:", importantClauses);
+                    console.log("Important clauses length:", importantClauses.length);
                     importantClauses.forEach((clause, idx) => {
                       console.log(`Processing clause ${idx}:`, clause, "type:", typeof clause);
+                      
+                      // Check if clause has uploaded documents
+                      let hasDocuments = false;
+                      
                       if (typeof clause === 'string') {
-                        allClauses.push({ title: clause, type: 'important' });
+                        // For string clauses, only show if they have been specifically marked as having documents
+                        // This would require the clause to have a 'hasDocument' property or similar
+                        hasDocuments = false;
                       } else if (clause && clause.title) {
-                        allClauses.push({ ...clause, type: 'important' });
-                      } else {
-                        console.warn(`Skipping invalid clause at index ${idx}:`, clause);
+                        // For object clauses, check if they have documents array (demo data) or file property (new agreements)
+                        hasDocuments = (clause.documents && Array.isArray(clause.documents) && clause.documents.length > 0) ||
+                                       (clause.file && clause.file !== null);
+                      }
+                      
+                      // Only add clauses that have uploaded documents
+                      if (hasDocuments) {
+                        if (typeof clause === 'string') {
+                          allClauses.push({ title: clause, type: 'important' });
+                        } else if (clause && clause.title) {
+                          allClauses.push({ ...clause, type: 'important' });
+                        }
                       }
                     });
                   }
@@ -796,22 +814,76 @@ function DetailsModal({ open, onClose, agreement, onPriorityChange, onStatusChan
                     console.log("Processing clauses:", clauses);
                     clauses.forEach((clause, idx) => {
                       console.log(`Processing regular clause ${idx}:`, clause, "type:", typeof clause);
+                      
+                      // Check if clause has uploaded documents
+                      let hasDocuments = false;
+                      
                       if (typeof clause === 'string') {
-                        allClauses.push({ title: clause, type: 'regular' });
+                        // For string clauses, only show if they have been specifically marked as having documents
+                        // This would require the clause to have a 'hasDocument' property or similar
+                        hasDocuments = false;
                       } else if (clause && clause.title) {
-                        allClauses.push({ ...clause, type: 'regular' });
-                      } else {
-                        console.warn(`Skipping invalid regular clause at index ${idx}:`, clause);
+                        // For object clauses, check if they have documents array (demo data) or file property (new agreements)
+                        hasDocuments = (clause.documents && Array.isArray(clause.documents) && clause.documents.length > 0) ||
+                                       (clause.file && clause.file !== null);
+                      }
+                      
+                      // Only add clauses that have uploaded documents
+                      if (hasDocuments) {
+                        if (typeof clause === 'string') {
+                          allClauses.push({ title: clause, type: 'regular' });
+                        } else if (clause && clause.title) {
+                          allClauses.push({ ...clause, type: 'regular' });
+                        }
                       }
                     });
                   }
                   
-                  if (allClauses.length === 0) {
-                    return <span className="text-gray-500 text-sm">No important clauses specified</span>;
+                  console.log("=== DETAILS MODAL - FILTERING RESULT ===");
+                  console.log("All clauses after filtering:", allClauses);
+                  console.log("All clauses length:", allClauses.length);
+                  
+                  // Check if there are any uploaded documents at all
+                  const hasAnyUploadedDocuments = uploadStatuses && Object.keys(uploadStatuses).some(docType => 
+                    uploadStatuses[docType]?.uploaded
+                  );
+                  
+                  console.log("Has any uploaded documents:", hasAnyUploadedDocuments);
+                  console.log("Upload statuses:", uploadStatuses);
+                  
+                  if (allClauses.length === 0 || !hasAnyUploadedDocuments) {
+                    return <span className="text-gray-500 text-sm">No clauses with documents uploaded</span>;
                   }
                   
                   return allClauses.map((clause, idx) => (
-                      <div key={idx} className="flex items-center gap-2 bg-blue-50 rounded-lg p-3">
+                      <div key={idx} className="flex items-center gap-2 bg-blue-50 rounded-lg p-3 cursor-pointer hover:bg-blue-100 transition-colors"
+                           onClick={() => {
+                             const clauseTitle = clause.title;
+                             
+                             // Check if clause has documents to open
+                             if (clause.documents && Array.isArray(clause.documents) && clause.documents.length > 0) {
+                               // Open the first document (demo data)
+                               const firstDoc = clause.documents[0];
+                               alert(`Opening document: ${firstDoc.name}\nSize: ${firstDoc.size}\nType: ${firstDoc.type}\n\nThis is demo data. In a real application, this would open the actual document.`);
+                             } else if (clause.file && clause.file !== null) {
+                               // Open the clause file (new agreements)
+                               alert(`Opening document: ${clause.file.name}\nSize: ${clause.file.size}\nType: ${clause.file.type}\n\nThis is demo data. In a real application, this would open the actual document.`);
+                             } else {
+                               // For string clauses, check if there's a corresponding file upload
+                               const clauseName = clauseTitle.toLowerCase();
+                               const matchingDocType = Object.keys(uploadStatuses || {}).find(docType => 
+                                 uploadStatuses[docType]?.uploaded && 
+                                 docType.toLowerCase().includes(clauseName.split(' ')[0].toLowerCase())
+                               );
+                               
+                               if (matchingDocType && uploadStatuses[matchingDocType].file) {
+                                 const file = uploadStatuses[matchingDocType].file;
+                                 alert(`Opening document: ${file.name}\nSize: ${file.size}\nType: ${matchingDocType}\n\nThis is demo data. In a real application, this would open the actual document.`);
+                               } else {
+                                 alert(`Clause: ${clauseTitle}\n\nNo document uploaded for this clause.`);
+                               }
+                             }
+                           }}>
                         <span className="text-blue-600">📋</span>
                       <div className="flex-1">
                         <span className="text-gray-800 text-sm font-medium">{clause.title}</span>
@@ -1952,9 +2024,61 @@ export default function AgreementTable({ agreements = [], onStatusUpdate, onAdde
       return <span className="text-gray-400 text-xs">No clauses specified</span>;
     }
     
+    // Debug: Log the agreement and its important clauses
+    console.log("=== FILTERING IMPORTANT CLAUSES ===");
+    console.log("Agreement ID:", agreement.id);
+    console.log("Important clauses:", agreement.importantClauses);
+    console.log("Important clauses length:", agreement.importantClauses?.length);
+    
+    // Filter clauses to only show those with uploaded documents
+    const clausesWithDocuments = agreement.importantClauses.filter(clause => {
+      if (!clause) return false;
+      
+      console.log("Checking clause:", clause);
+      console.log("Clause type:", typeof clause);
+      console.log("Clause has documents array:", clause.documents);
+      console.log("Clause has file property:", clause.file);
+      
+      // Check if clause has its own documents array with files (for demo data)
+      if (typeof clause === 'object' && clause.documents && Array.isArray(clause.documents) && clause.documents.length > 0) {
+        console.log("Clause has documents array - INCLUDING");
+        return true;
+      }
+      
+      // Check if clause has a file property with uploaded file (for new agreements)
+      if (typeof clause === 'object' && clause.file && clause.file !== null) {
+        console.log("Clause has file property - INCLUDING");
+        return true;
+      }
+      
+      // For string clauses, don't show them unless they have their own documents
+      if (typeof clause === 'string') {
+        console.log("Clause is string - EXCLUDING");
+        return false;
+      }
+      
+      console.log("Clause has no documents - EXCLUDING");
+      return false;
+    });
+    
+    console.log("Filtered clauses with documents:", clausesWithDocuments);
+    console.log("Filtered clauses length:", clausesWithDocuments.length);
+    
+    // Check if there are any uploaded documents at all
+    const hasAnyUploadedDocuments = agreement.uploadStatuses && Object.keys(agreement.uploadStatuses).some(docType => 
+      agreement.uploadStatuses[docType]?.uploaded
+    );
+    
+    console.log("Has any uploaded documents:", hasAnyUploadedDocuments);
+    console.log("Upload statuses:", agreement.uploadStatuses);
+    
+    if (clausesWithDocuments.length === 0 || !hasAnyUploadedDocuments) {
+      return <span className="text-gray-400 text-xs">No clauses with documents uploaded</span>;
+    }
+    
     return (
       <div className="space-y-1">
-          {agreement.importantClauses.slice(0, 3).filter(clause => clause != null).map((clause, index) => {
+          {clausesWithDocuments.slice(0, 3).map((clause, index) => {
             // Ensure clause is properly handled
             if (!clause) {
               console.warn("Empty clause found at index:", index);
@@ -2003,7 +2127,32 @@ export default function AgreementTable({ agreements = [], onStatusUpdate, onAdde
                 }`}
                 onClick={() => {
                   const clauseTitle = typeof clause === 'string' ? clause : (clause.title || 'Untitled Clause');
-                  alert(`Clause: ${clauseTitle}\n\nThis is a demo clause. In a real application, this would open the clause document or show detailed information.`);
+                  
+                  // Check if clause has documents to open
+                  if (typeof clause === 'object' && clause.documents && Array.isArray(clause.documents) && clause.documents.length > 0) {
+                    // Open the first document (demo data)
+                    const firstDoc = clause.documents[0];
+                    alert(`Opening document: ${firstDoc.name}\nSize: ${firstDoc.size}\nType: ${firstDoc.type}\n\nThis is demo data. In a real application, this would open the actual document.`);
+                  } else if (typeof clause === 'object' && clause.file && clause.file !== null) {
+                    // Open the clause file (new agreements)
+                    alert(`Opening document: ${clause.file.name}\nSize: ${clause.file.size}\nType: ${clause.file.type}\n\nThis is demo data. In a real application, this would open the actual document.`);
+                  } else if (typeof clause === 'string') {
+                    // For string clauses, check if there's a corresponding file upload
+                    const clauseName = clause.toLowerCase();
+                    const matchingDocType = Object.keys(agreement.uploadStatuses || {}).find(docType => 
+                      agreement.uploadStatuses[docType]?.uploaded && 
+                      docType.toLowerCase().includes(clauseName.split(' ')[0].toLowerCase())
+                    );
+                    
+                    if (matchingDocType && agreement.uploadStatuses[matchingDocType].file) {
+                      const file = agreement.uploadStatuses[matchingDocType].file;
+                      alert(`Opening document: ${file.name}\nSize: ${file.size}\nType: ${matchingDocType}\n\nThis is demo data. In a real application, this would open the actual document.`);
+                    } else {
+                      alert(`Clause: ${clauseTitle}\n\nNo document uploaded for this clause.`);
+                    }
+                  } else {
+                    alert(`Clause: ${clauseTitle}\n\nNo document uploaded for this clause.`);
+                  }
                 }}
                 title={`Click to view details for: ${typeof clause === 'string' ? clause : (clause.title || 'Untitled Clause')}`}
               >
@@ -2544,7 +2693,7 @@ export default function AgreementTable({ agreements = [], onStatusUpdate, onAdde
                  ))
                )}
             </tbody>
-            </table>
+          </table>
           </div>
         </div>
       </div>

@@ -447,18 +447,69 @@ const AgreementCards = ({
                 <div>
                   <h3 className="text-lg font-semibold text-gray-800 mb-3 border-b border-gray-200 pb-2">Important Clauses</h3>
                   <div className="space-y-2">
-                    {viewingAgreement.importantClauses && viewingAgreement.importantClauses.length > 0 ? (
-                      viewingAgreement.importantClauses.map((clause, idx) => (
-                        <div key={idx} className="flex items-center gap-2 bg-blue-50 rounded-lg p-3">
+                    {(() => {
+                      // Filter clauses to only show those with uploaded documents
+                      const clausesWithDocuments = (viewingAgreement.importantClauses || []).filter(clause => {
+                        if (!clause) return false;
+                        
+                        // Check if clause has its own documents array with files (for demo data)
+                        if (typeof clause === 'object' && clause.documents && Array.isArray(clause.documents) && clause.documents.length > 0) {
+                          return true;
+                        }
+                        
+                        // Check if clause has a file property with uploaded file (for new agreements)
+                        if (typeof clause === 'object' && clause.file && clause.file !== null) {
+                          return true;
+                        }
+                        
+                        // For string clauses, don't show them unless they have their own documents
+                        if (typeof clause === 'string') {
+                          return false;
+                        }
+                        
+                        return false;
+                      });
+                      
+                      // Check if there are any uploaded documents at all
+                      const hasAnyUploadedDocuments = viewingAgreement.uploadStatuses && Object.keys(viewingAgreement.uploadStatuses).some(docType => 
+                        viewingAgreement.uploadStatuses[docType]?.uploaded
+                      );
+                      
+                      console.log("=== AGREEMENT CARDS - IMPORTANT CLAUSES FILTERING ===");
+                      console.log("Agreement ID:", viewingAgreement.id);
+                      console.log("Important clauses:", viewingAgreement.importantClauses);
+                      console.log("Clauses with documents:", clausesWithDocuments);
+                      console.log("Has any uploaded documents:", hasAnyUploadedDocuments);
+                      console.log("Upload statuses:", viewingAgreement.uploadStatuses);
+                      
+                      if (clausesWithDocuments.length === 0 || !hasAnyUploadedDocuments) {
+                        return <span className="text-gray-500">No clauses with documents uploaded</span>;
+                      }
+                      
+                      return clausesWithDocuments.map((clause, idx) => (
+                        <div key={idx} className="flex items-center gap-2 bg-blue-50 rounded-lg p-3 cursor-pointer hover:bg-blue-100 transition-colors"
+                             onClick={() => {
+                               const clauseTitle = typeof clause === 'string' ? clause : (clause.title || 'Untitled Clause');
+                               
+                               // Check if clause has documents to open
+                               if (typeof clause === 'object' && clause.documents && Array.isArray(clause.documents) && clause.documents.length > 0) {
+                                 // Open the first document (demo data)
+                                 const firstDoc = clause.documents[0];
+                                 alert(`Opening document: ${firstDoc.name}\nSize: ${firstDoc.size}\nType: ${firstDoc.type}\n\nThis is demo data. In a real application, this would open the actual document.`);
+                               } else if (typeof clause === 'object' && clause.file && clause.file !== null) {
+                                 // Open the clause file (new agreements)
+                                 alert(`Opening document: ${clause.file.name}\nSize: ${clause.file.size}\nType: ${clause.file.type}\n\nThis is demo data. In a real application, this would open the actual document.`);
+                               } else {
+                                 alert(`Clause: ${clauseTitle}\n\nNo document uploaded for this clause.`);
+                               }
+                             }}>
                           <span className="text-blue-600">📋</span>
                           <span className="text-gray-800">
                             {typeof clause === 'string' ? clause : (clause.title || 'Untitled Clause')}
                           </span>
                         </div>
-                      ))
-                    ) : (
-                      <span className="text-gray-500">No important clauses specified</span>
-                    )}
+                      ));
+                    })()}
                   </div>
                 </div>
 

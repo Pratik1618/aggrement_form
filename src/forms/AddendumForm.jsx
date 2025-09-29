@@ -307,7 +307,7 @@ const AddendumForm = () => {
         clauseModifications: serializedClauseModifications,
         parentAgreementId: editingAddendum?.parentAgreementId,
         parentAgreementTitle: editingAddendum?.parentAgreementTitle,
-        submittedDate: new Date().toISOString().split('Z')[0],
+        submittedDate: new Date().toISOString().split('T')[0],
         submittedBy: "checker",
         status: "Pending Review",
         branches: serializedBranches

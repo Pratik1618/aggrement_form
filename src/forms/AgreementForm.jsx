@@ -227,7 +227,7 @@ const AgreementForm = () => {
             draftFiles.push({
               id: key,
               name: draftData.draftName || 'Untitled Draft',
-              date: draftData.submittedDate || new Date().toISOString()
+              date: draftData.submittedDate || new Date().toISOString().split('T')[0]
             });
             }
           } catch (error) {
@@ -355,25 +355,33 @@ const AgreementForm = () => {
   const validateContactInfo = () => {
     const errors = {};
     
-    // I Smart validation
+    // I Smart validation - MANDATORY
     const email = safeGet(formData, 'contactInfo.email');
-    if (email && !validateEmail(email)) {
+    if (!email || email.trim() === '') {
+      errors.email = 'I Smart email is required';
+    } else if (!validateEmail(email)) {
       errors.email = 'Please enter a valid email address (e.g., user@example.com)';
     }
     
     const phone = safeGet(formData, 'contactInfo.phone');
-    if (phone && !validatePhone(phone)) {
+    if (!phone || phone.trim() === '') {
+      errors.phone = 'I Smart phone number is required';
+    } else if (!validatePhone(phone)) {
       errors.phone = 'Please enter a valid 10-digit phone number starting with 6-9';
     }
     
-    // Client validation
+    // Client validation - MANDATORY
     const clientEmail = safeGet(formData, 'contactInfo.clientEmail');
-    if (clientEmail && !validateEmail(clientEmail)) {
+    if (!clientEmail || clientEmail.trim() === '') {
+      errors.clientEmail = 'Client email is required';
+    } else if (!validateEmail(clientEmail)) {
       errors.clientEmail = 'Please enter a valid email address (e.g., user@example.com)';
     }
     
     const clientPhone = safeGet(formData, 'contactInfo.clientPhone');
-    if (clientPhone && !validatePhone(clientPhone)) {
+    if (!clientPhone || clientPhone.trim() === '') {
+      errors.clientPhone = 'Client phone number is required';
+    } else if (!validatePhone(clientPhone)) {
       errors.clientPhone = 'Please enter a valid 10-digit phone number starting with 6-9';
     }
     
@@ -449,13 +457,44 @@ const AgreementForm = () => {
       return;
     }
 
-    // Note: Document upload validation is handled by the visual escalation message
-    // No popup alert needed - the yellow alert box already shows the requirement
+    // Validate mandatory fields for submission
+    if (action === 'submit') {
+      const errors = [];
+      
+      // Check mandatory form fields
+      if (!formData?.selectedClient) {
+        errors.push('Client selection is required');
+      }
+      if (!formData?.selectedBranches || formData.selectedBranches.length === 0) {
+        errors.push('At least one branch must be selected');
+      }
+      if (!formData?.startDate) {
+        errors.push('Start date is required');
+      }
+      if (!formData?.openAgreement && !formData?.endDate) {
+        errors.push('End date is required for closed agreements');
+      }
+      
+      // Check document uploads - at least one document required
+      const hasAnyDocument = formData.uploadStatuses?.WO?.uploaded || 
+                            formData.uploadStatuses?.PO?.uploaded || 
+                            formData.uploadStatuses?.LOI?.uploaded || 
+                            formData.uploadStatuses?.EmailApproval?.uploaded;
+      
+      if (!hasAnyDocument) {
+        errors.push('At least one document (WO, PO, LOI, or Email) must be uploaded');
+      }
+      
+      if (errors.length > 0) {
+        alert('Please fix the following errors before submitting:\n\n' + errors.join('\n'));
+        return;
+      }
+    }
 
     const agreementData = {
       ...formData,
       status: action === 'submit' ? 'Under Review' : 'Draft',
-      submittedDate: new Date().toISOString(),
+      submittedDate: new Date().toISOString().split('T')[0],
       submittedBy: user?.role || 'checker'
     };
 
