@@ -78,6 +78,7 @@ const AgreementForm = () => {
       PO: { uploaded: false, file: null },
       EmailApproval: { uploaded: false, file: null }
     },
+    clientDraftFile: { uploaded: false, file: null },
     draftFiles: []
   });
 
@@ -156,7 +157,8 @@ const AgreementForm = () => {
             WO: { uploaded: false, file: null },
             PO: { uploaded: false, file: null },
             EmailApproval: { uploaded: false, file: null }
-          }
+          },
+          clientDraftFile: editingAgreement.clientDraftFile || { uploaded: false, file: null }
       };
       
       setFormData(safeEditingData);
@@ -202,7 +204,8 @@ const AgreementForm = () => {
             WO: { uploaded: false, file: null },
             PO: { uploaded: false, file: null },
             EmailApproval: { uploaded: false, file: null }
-          }
+          },
+          clientDraftFile: { uploaded: false, file: null }
         });
         setIsFormReady(true);
       }
@@ -449,6 +452,15 @@ const AgreementForm = () => {
     reader.readAsDataURL(file);
   };
 
+  const handleClientDraftUpload = (file) => {
+    if (file) {
+      setFormData(prev => ({
+        ...prev,
+        clientDraftFile: { uploaded: true, file }
+      }));
+    }
+  };
+
   // Handle form submission
   const handleSubmit = (action) => {
     // Validate contact information before submission
@@ -467,6 +479,9 @@ const AgreementForm = () => {
       }
       if (!formData?.selectedBranches || formData.selectedBranches.length === 0) {
         errors.push('At least one branch must be selected');
+      }
+      if (formData?.agreementType === 'Client Draft' && !formData?.clientDraftFile?.uploaded) {
+        errors.push('Client draft file is required for Client Draft agreements');
       }
       if (!formData?.startDate) {
         errors.push('Start date is required');
@@ -574,7 +589,8 @@ const AgreementForm = () => {
         WO: { uploaded: false, file: null },
         PO: { uploaded: false, file: null },
         EmailApproval: { uploaded: false, file: null }
-      }
+      },
+      clientDraftFile: { uploaded: false, file: null }
     });
 
     dispatch(setEditingAgreement(null));
@@ -1103,18 +1119,83 @@ const AgreementForm = () => {
           <div className="flex space-x-6">
             {agreementTypeOptions.map(type => (
               <label key={type} className="flex items-center">
-              <input
+                <input
                 type="radio"
                   name="agreementType"
                   value={type}
                   checked={formData.agreementType === type}
-                  onChange={(e) => handleInputChange('agreementType', e.target.value)}
+                  onChange={(e) => {
+                    const selectedType = e.target.value;
+                    setFormData(prev => ({
+                      ...prev,
+                      agreementType: selectedType,
+                      clientDraftFile: selectedType === 'Client Draft'
+                        ? prev.clientDraftFile
+                        : { uploaded: false, file: null }
+                    }));
+                  }}
                   className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
                 />
                 <span className="text-sm font-medium text-gray-700">{type}</span>
             </label>
             ))}
           </div>
+
+          {formData.agreementType === 'Client Draft' && (
+            <div className="mt-4 border-2 border-dashed border-gray-300 rounded-lg p-4">
+              <div className="text-sm font-medium text-gray-700 mb-2">Upload Client Draft</div>
+              {formData.clientDraftFile?.uploaded ? (
+                <div className="space-y-2">
+                  <div className="text-green-600 text-sm font-medium">
+                    ✓ {formData.clientDraftFile.file?.name || 'File uploaded'}
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (formData.clientDraftFile?.file) {
+                          const url = URL.createObjectURL(formData.clientDraftFile.file);
+                          window.open(url, '_blank');
+                        }
+                      }}
+                      className="px-3 py-1 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700"
+                    >
+                      View
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setFormData(prev => ({
+                          ...prev,
+                          clientDraftFile: { uploaded: false, file: null }
+                        }))
+                      }
+                      className="px-3 py-1 bg-red-600 text-white text-sm rounded-md hover:bg-red-700"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <input
+                    type="file"
+                    onChange={(e) => handleClientDraftUpload(e.target.files[0])}
+                    className="hidden"
+                    id="upload-client-draft"
+                    accept=".pdf,.doc,.docx"
+                  />
+                  <label
+                    htmlFor="upload-client-draft"
+                    className="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 cursor-pointer"
+                  >
+                    Choose Client Draft
+                  </label>
+                  <p className="text-xs text-gray-500 mt-2">Allowed: pdf, doc, docx</p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Important Clauses */}
@@ -1439,7 +1520,8 @@ const AgreementForm = () => {
                             WO: { uploaded: false, file: null },
                             PO: { uploaded: false, file: null },
                             EmailApproval: { uploaded: false, file: null }
-                          }
+                          },
+                          clientDraftFile: draftAgreement.clientDraftFile || { uploaded: false, file: null }
                         };
                         
                         console.log("Setting form data with safe draft data:", safeDraftData);
