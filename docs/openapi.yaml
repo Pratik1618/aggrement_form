@@ -1,0 +1,1495 @@
+openapi: 3.0.3
+info:
+  title: Agreement Form Backend API
+  version: 1.0.0
+  description: |
+    Backend contract derived from the current frontend behavior in this repository.
+
+    Current role model in the UI:
+    - Checker: maker role. Creates agreements, saves drafts, submits agreements for review, edits agreements, creates addendums.
+    - Approver: reviewer role. Cannot access the "new agreement" tab, reviews submitted agreements, updates priority and status, uploads the final agreement, and updates addendum status.
+
+    Current agreement flow in the UI:
+    1. Checker saves a draft or submits an agreement.
+    2. Submit sets agreement status to `Under Review`.
+    3. Approver opens agreement details and may:
+       - change priority
+       - move status to `Execution Pending`, `Executed`, `Under Process with Client`, or `Approved`
+       - upload final agreement
+    4. Addendums are created separately and submitted as `Pending Review`.
+
+servers:
+  - url: https://api.example.com
+    description: Production
+  - url: http://localhost:8080
+    description: Local
+
+tags:
+  - name: Auth
+  - name: Drafts
+  - name: Agreements
+  - name: Agreement Workflow
+  - name: Documents
+  - name: Addendums
+
+security:
+  - bearerAuth: []
+
+paths:
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Log in and receive the authenticated user with role
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              email: approver@example.com
+              password: secret-password
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/me:
+    get:
+      tags: [Auth]
+      summary: Get the current authenticated user
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/User'
+                required: [data]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/agreement-drafts:
+    get:
+      tags: [Drafts]
+      summary: List checker drafts
+      description: |
+        Mirrors the current frontend draft list currently stored in localStorage.
+        Intended for checker users only.
+      parameters:
+        - in: query
+          name: createdBy
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Drafts list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AgreementDraft'
+                required: [data]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Drafts]
+      summary: Save a new agreement draft
+      description: |
+        Current frontend behavior has a separate "Save Draft" action.
+        This endpoint preserves that flow instead of folding draft and submit into a single operation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgreementDraftUpsertRequest'
+      responses:
+        '201':
+          description: Draft created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AgreementDraft'
+                required: [data]
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/agreement-drafts/{draftId}:
+    get:
+      tags: [Drafts]
+      summary: Get a draft by id
+      parameters:
+        - $ref: '#/components/parameters/DraftId'
+      responses:
+        '200':
+          description: Draft detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AgreementDraft'
+                required: [data]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Drafts]
+      summary: Update an existing draft
+      parameters:
+        - $ref: '#/components/parameters/DraftId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgreementDraftUpsertRequest'
+      responses:
+        '200':
+          description: Draft updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AgreementDraft'
+                required: [data]
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Drafts]
+      summary: Delete a draft
+      parameters:
+        - $ref: '#/components/parameters/DraftId'
+      responses:
+        '204':
+          description: Draft deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/agreements:
+    get:
+      tags: [Agreements]
+      summary: List agreements
+      parameters:
+        - in: query
+          name: status
+          schema:
+            $ref: '#/components/schemas/AgreementStatus'
+        - in: query
+          name: client
+          schema:
+            type: string
+        - in: query
+          name: fromDate
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: toDate
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Agreement list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Agreement'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+                required: [data]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Agreements]
+      summary: Submit a new agreement for review
+      description: |
+        Mirrors current checker "Submit for Review" behavior.
+        The backend should set:
+        - `status = Under Review`
+        - `submittedDate = today`
+        - `submittedBy = authenticated checker`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgreementSubmitRequest'
+      responses:
+        '201':
+          description: Agreement submitted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Agreement'
+                required: [data]
+              examples:
+                submitted:
+                  value:
+                    data:
+                      id: AGR1710000000000
+                      selectedClient: Acme Corp
+                      selectedDepartment: IT
+                      selectedBranches: [Mumbai, Delhi]
+                      agreementType: Client Draft
+                      startDate: '2026-04-01'
+                      endDate: '2027-03-31'
+                      openAgreement: false
+                      remarks: Urgent commercial agreement
+                      entityType: single
+                      groupCompanies: []
+                      status: Under Review
+                      submittedDate: '2026-04-18'
+                      submittedBy: Checker
+                      priority: Medium
+                      uploadStatuses:
+                        LOI:
+                          uploaded: true
+                          file:
+                            id: FILE001
+                            name: acme-loi.pdf
+                            mimeType: application/pdf
+                            size: 245760
+                            url: /uploads/agreements/AGR1710000000000/acme-loi.pdf
+                        WO:
+                          uploaded: false
+                          file: null
+                        PO:
+                          uploaded: false
+                          file: null
+                        EmailApproval:
+                          uploaded: false
+                          file: null
+                      clientDraftFile:
+                        uploaded: true
+                        file:
+                          id: FILE002
+                          name: client-draft.docx
+                          mimeType: application/vnd.openxmlformats-officedocument.wordprocessingml.document
+                          size: 120304
+                          url: /uploads/agreements/AGR1710000000000/client-draft.docx
+                      createdAt: '2026-04-18T10:00:00Z'
+                      lastModified: '2026-04-18T10:00:00Z'
+                      version: 1.0.0
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/agreements/{agreementId}:
+    get:
+      tags: [Agreements]
+      summary: Get agreement detail
+      parameters:
+        - $ref: '#/components/parameters/AgreementId'
+      responses:
+        '200':
+          description: Agreement detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Agreement'
+                required: [data]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Agreements]
+      summary: Edit an existing agreement as checker
+      description: |
+        Mirrors the current checker edit flow from AgreementCards -> AgreementForm.
+        Frontend currently calls update logic when an existing agreement is edited.
+        Backend should allow checker edits and preserve workflow history rules.
+      parameters:
+        - $ref: '#/components/parameters/AgreementId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgreementUpdateRequest'
+      responses:
+        '200':
+          description: Agreement updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Agreement'
+                required: [data]
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/agreements/{agreementId}/workflow/checker-submit:
+    post:
+      tags: [Agreement Workflow]
+      summary: Submit an existing draft or edited agreement for approver review
+      description: |
+        Use this when a checker turns a draft or editable agreement into a reviewable agreement.
+        This preserves the current frontend behavior where submit sets `status = Under Review`.
+      parameters:
+        - $ref: '#/components/parameters/AgreementId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckerSubmitActionRequest'
+      responses:
+        '200':
+          description: Agreement submitted to approver
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Agreement'
+                required: [data]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/agreements/{agreementId}/workflow/approver-review:
+    patch:
+      tags: [Agreement Workflow]
+      summary: Update agreement status and priority as approver
+      description: |
+        Mirrors the current approver details modal in AgreementTable.
+
+        Current UI behavior:
+        - Approver can set `priority`
+        - Approver can set `status` from the modal to:
+          - `Execution Pending`
+          - `Executed`
+          - `Under Process with Client`
+          - `Approved`
+        - Current helper flow also supports reject/reset behavior back to `Execution Pending`
+        - If final agreement is uploaded separately, approver may then mark the agreement `Approved`
+      parameters:
+        - $ref: '#/components/parameters/AgreementId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApproverReviewRequest'
+            examples:
+              moveToExecuted:
+                value:
+                  status: Executed
+                  priority: High
+                  comments: Agreement executed by client
+              approveAgreement:
+                value:
+                  status: Approved
+                  priority: High
+                  approvedDate: '2026-04-18'
+                  comments: Final approval granted by approver
+                  finalAgreementFileId: FILE_FINAL_001
+              resetToPending:
+                value:
+                  status: Execution Pending
+                  comments: Status reset to pending
+      responses:
+        '200':
+          description: Agreement review state updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Agreement'
+                required: [data]
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/agreements/{agreementId}/documents:
+    post:
+      tags: [Documents]
+      summary: Upload a supporting agreement document
+      description: |
+        Supports the current agreement form document uploads:
+        - LOI
+        - WO
+        - PO
+        - EmailApproval
+      parameters:
+        - $ref: '#/components/parameters/AgreementId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                documentType:
+                  $ref: '#/components/schemas/SupportingDocumentType'
+                file:
+                  type: string
+                  format: binary
+              required: [documentType, file]
+      responses:
+        '201':
+          description: Supporting document uploaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/UploadedSupportingDocument'
+                required: [data]
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/agreements/{agreementId}/client-draft:
+    post:
+      tags: [Documents]
+      summary: Upload the client draft file for Client Draft agreements
+      parameters:
+        - $ref: '#/components/parameters/AgreementId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+              required: [file]
+      responses:
+        '201':
+          description: Client draft uploaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/UploadedFileReference'
+                required: [data]
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/agreements/{agreementId}/final-agreement:
+    post:
+      tags: [Documents]
+      summary: Upload the final agreement as approver
+      description: |
+        Mirrors the current approver-only final agreement upload in AgreementTable.
+        This should normally be followed by approver review update to `Approved`
+        or included via `finalAgreementFileId` in approver review.
+      parameters:
+        - $ref: '#/components/parameters/AgreementId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+              required: [file]
+      responses:
+        '201':
+          description: Final agreement uploaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/UploadedFileReference'
+                required: [data]
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/addendums:
+    get:
+      tags: [Addendums]
+      summary: List addendums
+      parameters:
+        - in: query
+          name: parentAgreementId
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Addendum list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Addendum'
+                required: [data]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Addendums]
+      summary: Create a new addendum as checker
+      description: |
+        Mirrors current AddendumForm behavior.
+        Backend should set:
+        - `submittedBy = authenticated checker`
+        - `submittedDate = today`
+        - `status = Pending Review`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddendumCreateRequest'
+      responses:
+        '201':
+          description: Addendum created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Addendum'
+                required: [data]
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/addendums/{addendumId}:
+    patch:
+      tags: [Addendums]
+      summary: Edit addendum content
+      parameters:
+        - $ref: '#/components/parameters/AddendumId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddendumUpdateRequest'
+      responses:
+        '200':
+          description: Addendum updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Addendum'
+                required: [data]
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/addendums/{addendumId}/status:
+    patch:
+      tags: [Addendums]
+      summary: Update addendum status as approver
+      description: |
+        Mirrors the current approver addendum review modal.
+        Current UI statuses shown there:
+        - Pending
+        - Approved
+        - Rejected
+      parameters:
+        - $ref: '#/components/parameters/AddendumId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddendumStatusUpdateRequest'
+      responses:
+        '200':
+          description: Addendum status updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Addendum'
+                required: [data]
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    AgreementId:
+      in: path
+      name: agreementId
+      required: true
+      schema:
+        type: string
+      example: AGR1710000000000
+    DraftId:
+      in: path
+      name: draftId
+      required: true
+      schema:
+        type: string
+      example: DRAFT1710000000000
+    AddendumId:
+      in: path
+      name: addendumId
+      required: true
+      schema:
+        type: string
+      example: ADD1710000000000
+
+  responses:
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: UNAUTHORIZED
+              message: Authentication required
+    Forbidden:
+      description: User does not have permission
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: FORBIDDEN
+              message: You do not have permission to perform this action
+    NotFound:
+      description: Requested resource was not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: NOT_FOUND
+              message: Resource not found
+    ValidationError:
+      description: Validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationErrorResponse'
+          example:
+            error:
+              code: VALIDATION_ERROR
+              message: Invalid request payload
+              details:
+                - field: selectedClient
+                  message: selectedClient is required
+
+  schemas:
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+      required: [email, password]
+
+    LoginResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            token:
+              type: string
+            user:
+              $ref: '#/components/schemas/User'
+          required: [token, user]
+      required: [data]
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          $ref: '#/components/schemas/UserRole'
+      required: [id, name, email, role]
+
+    UserRole:
+      type: string
+      enum: [Checker, Approver]
+
+    AgreementStatus:
+      type: string
+      enum:
+        - Draft
+        - Under Review
+        - Execution Pending
+        - Executed
+        - Under Process with Client
+        - Approved
+        - Rejected
+
+    AddendumStatus:
+      type: string
+      enum:
+        - Draft
+        - Pending Review
+        - Under Review
+        - Pending
+        - Approved
+        - Rejected
+
+    Priority:
+      type: string
+      enum: [High, Medium, Low]
+
+    AgreementType:
+      type: string
+      enum: [Client Draft, iSmart Draft]
+
+    SupportingDocumentType:
+      type: string
+      enum: [LOI, WO, PO, EmailApproval]
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+
+    UploadedFileReference:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        mimeType:
+          type: string
+        size:
+          type: integer
+        url:
+          type: string
+          format: uri-reference
+      required: [id, name, mimeType, size, url]
+
+    UploadedSupportingDocument:
+      type: object
+      properties:
+        agreementId:
+          type: string
+        documentType:
+          $ref: '#/components/schemas/SupportingDocumentType'
+        uploaded:
+          type: boolean
+        file:
+          $ref: '#/components/schemas/UploadedFileReference'
+        uploadedAt:
+          type: string
+          format: date-time
+      required: [agreementId, documentType, uploaded, file, uploadedAt]
+
+    DocumentUploadStatus:
+      type: object
+      properties:
+        uploaded:
+          type: boolean
+        file:
+          allOf:
+            - $ref: '#/components/schemas/UploadedFileReference'
+          nullable: true
+      required: [uploaded, file]
+
+    ContactInfo:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        clientName:
+          type: string
+        clientEmail:
+          type: string
+          format: email
+        clientPhone:
+          type: string
+        ismartName:
+          type: string
+        ismartEmail:
+          type: string
+          format: email
+        ismartPhone:
+          type: string
+      required:
+        - email
+        - phone
+        - clientEmail
+        - clientPhone
+
+    ImportantClause:
+      type: object
+      properties:
+        title:
+          type: string
+        content:
+          type: string
+        placeholder:
+          type: string
+        isInitial:
+          type: boolean
+        file:
+          allOf:
+            - $ref: '#/components/schemas/UploadedFileReference'
+          nullable: true
+
+    ApprovalWorkflowStep:
+      type: object
+      properties:
+        step:
+          type: string
+        status:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        user:
+          type: string
+        userRole:
+          $ref: '#/components/schemas/UserRole'
+        comments:
+          type: string
+
+    FinalApproval:
+      type: object
+      properties:
+        approved:
+          type: boolean
+        approvedBy:
+          type: string
+        approvedDate:
+          type: string
+          format: date
+          nullable: true
+        finalComments:
+          type: string
+          nullable: true
+
+    ApprovalWorkflow:
+      type: object
+      properties:
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApprovalWorkflowStep'
+        finalApproval:
+          $ref: '#/components/schemas/FinalApproval'
+
+    AgreementBase:
+      type: object
+      properties:
+        selectedClient:
+          type: string
+        selectedDepartment:
+          type: string
+        selectedBranches:
+          type: array
+          items:
+            oneOf:
+              - type: string
+              - type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+        agreementType:
+          $ref: '#/components/schemas/AgreementType'
+        startDate:
+          type: string
+          format: date
+        endDate:
+          type: string
+          format: date
+          nullable: true
+        openAgreement:
+          type: boolean
+        remarks:
+          type: string
+        entityType:
+          type: string
+          enum: [single, multiple]
+        groupCompanies:
+          type: array
+          items:
+            type: string
+        contactInfo:
+          $ref: '#/components/schemas/ContactInfo'
+        importantClauses:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImportantClause'
+      required:
+        - selectedClient
+        - selectedBranches
+        - agreementType
+        - startDate
+        - openAgreement
+        - entityType
+        - contactInfo
+
+    AgreementSubmitRequest:
+      allOf:
+        - $ref: '#/components/schemas/AgreementBase'
+        - type: object
+          properties:
+            supportingDocumentFileIds:
+              type: object
+              properties:
+                LOI:
+                  type: string
+                  nullable: true
+                WO:
+                  type: string
+                  nullable: true
+                PO:
+                  type: string
+                  nullable: true
+                EmailApproval:
+                  type: string
+                  nullable: true
+            clientDraftFileId:
+              type: string
+              nullable: true
+          description: |
+            Validation rules from the current frontend:
+            - at least one supporting document is required on submit
+            - if `agreementType = Client Draft`, `clientDraftFileId` is required
+            - if `openAgreement = false`, `endDate` is required
+
+    AgreementUpdateRequest:
+      allOf:
+        - $ref: '#/components/schemas/AgreementBase'
+        - type: object
+          properties:
+            supportingDocumentFileIds:
+              type: object
+              properties:
+                LOI:
+                  type: string
+                  nullable: true
+                WO:
+                  type: string
+                  nullable: true
+                PO:
+                  type: string
+                  nullable: true
+                EmailApproval:
+                  type: string
+                  nullable: true
+            clientDraftFileId:
+              type: string
+              nullable: true
+
+    Agreement:
+      allOf:
+        - $ref: '#/components/schemas/AgreementBase'
+        - type: object
+          properties:
+            id:
+              type: string
+            status:
+              $ref: '#/components/schemas/AgreementStatus'
+            submittedDate:
+              type: string
+              format: date
+            submittedBy:
+              type: string
+            approvedDate:
+              type: string
+              format: date
+              nullable: true
+            priority:
+              $ref: '#/components/schemas/Priority'
+            uploadStatuses:
+              type: object
+              properties:
+                LOI:
+                  $ref: '#/components/schemas/DocumentUploadStatus'
+                WO:
+                  $ref: '#/components/schemas/DocumentUploadStatus'
+                PO:
+                  $ref: '#/components/schemas/DocumentUploadStatus'
+                EmailApproval:
+                  $ref: '#/components/schemas/DocumentUploadStatus'
+            clientDraftFile:
+              type: object
+              properties:
+                uploaded:
+                  type: boolean
+                file:
+                  allOf:
+                    - $ref: '#/components/schemas/UploadedFileReference'
+                  nullable: true
+            finalAgreement:
+              allOf:
+                - $ref: '#/components/schemas/UploadedFileReference'
+              nullable: true
+            approvalWorkflow:
+              $ref: '#/components/schemas/ApprovalWorkflow'
+            createdAt:
+              type: string
+              format: date-time
+            lastModified:
+              type: string
+              format: date-time
+            version:
+              type: string
+          required:
+            - id
+            - status
+            - submittedDate
+            - submittedBy
+            - createdAt
+            - lastModified
+            - version
+
+    AgreementDraft:
+      allOf:
+        - $ref: '#/components/schemas/AgreementBase'
+        - type: object
+          properties:
+            id:
+              type: string
+            draftName:
+              type: string
+            status:
+              type: string
+              enum: [Draft]
+            supportingDocumentFileIds:
+              type: object
+              properties:
+                LOI:
+                  type: string
+                  nullable: true
+                WO:
+                  type: string
+                  nullable: true
+                PO:
+                  type: string
+                  nullable: true
+                EmailApproval:
+                  type: string
+                  nullable: true
+            clientDraftFileId:
+              type: string
+              nullable: true
+            createdAt:
+              type: string
+              format: date-time
+            lastModified:
+              type: string
+              format: date-time
+          required:
+            - id
+            - draftName
+            - status
+            - createdAt
+            - lastModified
+
+    AgreementDraftUpsertRequest:
+      allOf:
+        - $ref: '#/components/schemas/AgreementBase'
+        - type: object
+          properties:
+            draftName:
+              type: string
+            supportingDocumentFileIds:
+              type: object
+              properties:
+                LOI:
+                  type: string
+                  nullable: true
+                WO:
+                  type: string
+                  nullable: true
+                PO:
+                  type: string
+                  nullable: true
+                EmailApproval:
+                  type: string
+                  nullable: true
+            clientDraftFileId:
+              type: string
+              nullable: true
+
+    CheckerSubmitActionRequest:
+      type: object
+      properties:
+        comments:
+          type: string
+
+    ApproverReviewRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+            - Execution Pending
+            - Executed
+            - Under Process with Client
+            - Approved
+        priority:
+          $ref: '#/components/schemas/Priority'
+        approvedDate:
+          type: string
+          format: date
+        comments:
+          type: string
+        finalAgreementFileId:
+          type: string
+      required: [status]
+
+    ClauseModification:
+      type: object
+      properties:
+        clause:
+          type: string
+        action:
+          type: string
+          enum: [modified, added, removed]
+        description:
+          type: string
+      required: [clause, action, description]
+
+    AddendumBranch:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        createdAt:
+          type: string
+        status:
+          type: string
+
+    AddendumCreateRequest:
+      type: object
+      properties:
+        parentAgreementId:
+          type: string
+        parentAgreementTitle:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        effectiveDate:
+          type: string
+          format: date-time
+        reason:
+          type: string
+        impact:
+          type: string
+        uploadedFileIds:
+          type: object
+          additionalProperties:
+            type: string
+        clauseModifications:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClauseModification'
+        branches:
+          type: array
+          items:
+            $ref: '#/components/schemas/AddendumBranch'
+      required:
+        - parentAgreementId
+        - title
+        - description
+        - effectiveDate
+        - reason
+        - impact
+
+    AddendumUpdateRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        effectiveDate:
+          type: string
+          format: date-time
+        reason:
+          type: string
+        impact:
+          type: string
+        uploadedFileIds:
+          type: object
+          additionalProperties:
+            type: string
+        clauseModifications:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClauseModification'
+        branches:
+          type: array
+          items:
+            $ref: '#/components/schemas/AddendumBranch'
+
+    AddendumStatusUpdateRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [Pending, Approved, Rejected]
+        comments:
+          type: string
+      required: [status]
+
+    Addendum:
+      type: object
+      properties:
+        id:
+          type: string
+        parentAgreementId:
+          type: string
+        parentAgreementTitle:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        effectiveDate:
+          type: string
+          format: date-time
+        reason:
+          type: string
+        impact:
+          type: string
+        submittedDate:
+          type: string
+          format: date
+        submittedBy:
+          type: string
+        status:
+          $ref: '#/components/schemas/AddendumStatus'
+        uploadedFiles:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/UploadedFileReference'
+        clauseModifications:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClauseModification'
+        branches:
+          type: array
+          items:
+            $ref: '#/components/schemas/AddendumBranch'
+        version:
+          type: string
+        lastModified:
+          type: string
+          format: date-time
+      required:
+        - id
+        - parentAgreementId
+        - title
+        - description
+        - effectiveDate
+        - reason
+        - impact
+        - submittedDate
+        - submittedBy
+        - status
+        - version
+
+    ErrorDetail:
+      type: object
+      properties:
+        field:
+          type: string
+        message:
+          type: string
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+          required: [code, message]
+      required: [error]
+
+    ValidationErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: array
+              items:
+                $ref: '#/components/schemas/ErrorDetail'
+          required: [code, message]
+      required: [error]
