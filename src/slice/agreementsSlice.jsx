@@ -9,6 +9,8 @@ const formatDateWithoutTimezone = (date) => {
   return `${year}-${month}-${day}`;
 };
 
+const daysFromNow = (days) => formatDateWithoutTimezone(new Date(Date.now() + days * 24 * 60 * 60 * 1000));
+
 // Demo agreements data - 3 sample agreements for testing
 const demoAgreements = [
   {
@@ -17,7 +19,7 @@ const demoAgreements = [
     selectedDepartment: "IT Services",
     agreementType: "LOI",
     startDate: "2024-01-15",
-    endDate: "2024-12-31",
+    endDate: daysFromNow(5),
     totalValue: 50000,
     currency: "USD",
     status: "Execution Pending",
@@ -134,7 +136,7 @@ const demoAgreements = [
     selectedDepartment: "Manufacturing",
     agreementType: "WO",
     startDate: "2024-02-01",
-    endDate: "2025-01-31",
+    endDate: daysFromNow(21),
     totalValue: 75000,
     currency: "EUR",
     status: "Executed",
@@ -234,7 +236,7 @@ const demoAgreements = [
     selectedDepartment: "Medical Services",
     agreementType: "PO",
     startDate: "2024-02-15",
-    endDate: "2025-02-14",
+    endDate: daysFromNow(90),
     totalValue: 120000,
     currency: "USD",
     status: "Under Process with Client",

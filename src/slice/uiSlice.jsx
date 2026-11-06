@@ -12,6 +12,7 @@ const initialState = {
   showFinalUpload: null,
   dropdownOpen: {},
   isEditing: false,
+  isFormDirty: false,
   currentPage: "agreement" // for DetailsModal navigation
 };
 
@@ -55,6 +56,9 @@ const uiSlice = createSlice({
     setCurrentPage: (state, action) => {
       state.currentPage = action.payload;
     },
+    setFormDirty: (state, action) => {
+      state.isFormDirty = action.payload;
+    },
     closeAllModals: (state) => {
       state.viewModal = { open: false, agreement: null };
       state.addendumDetailsModal = { open: false, addendum: null };
@@ -86,6 +90,7 @@ export const {
   setDropdownOpen,
   setIsEditing,
   setCurrentPage,
+  setFormDirty,
   closeAllModals,
   resetEditingState
 } = uiSlice.actions;

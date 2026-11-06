@@ -1,65 +1,52 @@
-
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useMemo } from "react";
+import { toast } from "sonner";
+import {
+  FileText,
+  FilePlus2,
+  Pencil,
+  Eye,
+  X,
+  ArrowLeft,
+  ClipboardList,
+  Inbox,
+} from "lucide-react";
 import { useAppState } from "../hooks/useRedux";
+import { statusBadgeClass, priorityBadgeClass } from "../lib/status";
+import { formatDate } from "@/lib/dates";
+import { Card, CardContent } from "../components/ui/card";
+import { Badge } from "../components/ui/badge";
+import { Button } from "../components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "../components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../components/ui/select";
 import AddendumForm from "./AddendumForm";
 
-const AgreementCards = ({ 
-  agreements, 
-  onStatusUpdate, 
-  onAddendumStatusUpdate,
-  userRole, 
-  onCreateAddendum,
+const getBranchNames = (branches) => {
+  if (!branches || branches.length === 0) return null;
+  return branches.map(branch => (typeof branch === 'string' ? branch : branch.name)).join(", ");
+};
+
+const AgreementCards = ({
+  agreements,
   onEditAgreement,
-  editingAgreement,
-  onEditComplete,
-  onAddendumSubmit
+  onAddendumStatusUpdate,
+  userRole,
+  onAddendumSubmit,
 }) => {
   const { ui, addendums } = useAppState();
   const { actions: uiActions } = ui;
-  
-  // Monitor addendums changes
-  useEffect(() => {
-    console.log("=== ADDENDUMS CHANGED IN AGREEMENT CARDS ===");
-    console.log("New addendums:", addendums?.addendums);
-    console.log("Addendums count:", addendums?.addendums?.length);
-    console.log("Addendums structure:", addendums);
-    
-    // Test filtering for STATIC-006 specifically
-    if (addendums?.addendums) {
-      const static006Addendums = addendums.addendums.filter(add => add.parentAgreementId === "STATIC-006");
-      console.log("STATIC-006 addendums from Redux:", static006Addendums);
-      console.log("STATIC-006 addendums count:", static006Addendums.length);
-    }
-    
-    // Test filtering for first agreement
-    if (agreements && agreements.length > 0 && addendums?.addendums) {
-      const firstAgreementId = agreements[0].id;
-      console.log("Testing filtering for first agreement:", firstAgreementId);
-      const filtered = addendums.addendums.filter(add => add.parentAgreementId === firstAgreementId);
-      console.log("Filtered addendums for first agreement:", filtered);
-    }
-    
-  }, [addendums?.addendums, agreements]);
-  
-  // Debug addendums from Redux
-  console.log("=== AGREEMENT CARDS - REDUX ADDENDUMS ===");
-  console.log("addendums from useAppState:", addendums);
-  console.log("addendums.addendums:", addendums?.addendums);
-  console.log("addendums length:", addendums?.addendums?.length);
-  
-  // Debug each addendum
-  if (addendums?.addendums) {
-    addendums.addendums.forEach((addendum, index) => {
-      console.log(`Addendum ${index}:`, {
-        id: addendum.id,
-        title: addendum.title,
-        parentAgreementId: addendum.parentAgreementId,
-        status: addendum.status,
-        isDemo: addendum.isDemo
-      });
-    });
-  }
-  
+
   const [showAddendumForm, setShowAddendumForm] = useState(false);
   const [selectedAgreement, setSelectedAgreement] = useState(null);
   const [editingAddendum, setEditingAddendum] = useState(null);
@@ -68,53 +55,36 @@ const AgreementCards = ({
   const [showAddendumModal, setShowAddendumModal] = useState(false);
   const [pendingStatusChange, setPendingStatusChange] = useState(null);
 
-  // Sort agreements by submission date (newest first)
-  const sortedAgreements = [...agreements].sort((a, b) => 
+  const sortedAgreements = [...agreements].sort((a, b) =>
     new Date(b.submittedDate) - new Date(a.submittedDate)
   );
 
-  const handleAddendumClick = (agreement) => {
-    console.log("=== ADDENDUM BUTTON CLICKED ===");
-    console.log("Opening addendum form for agreement:", agreement);
-    console.log("Agreement ID:", agreement.id);
-    console.log("Agreement ID type:", typeof agreement.id);
-    console.log("uiActions available:", uiActions);
-    
-    try {
-      // Set the parent agreement information in Redux state
-      console.log("Calling setEditingAddendum...");
-      const parentData = {
-        parentAgreementId: agreement.id,
-        parentAgreementTitle: agreement.clientName || agreement.title || `Agreement ${agreement.id}`,
-        parentAgreementBranches: (() => {
-          if (!agreement.selectedBranches || agreement.selectedBranches.length === 0) {
-            return "All Branches";
-          }
-          return agreement.selectedBranches.map(branch => 
-            typeof branch === 'string' ? branch : branch.name
-          ).join(", ");
-        })()
-      };
-      console.log("Parent data being set:", parentData);
-      uiActions.setEditingAddendum(parentData);
-      console.log("Calling setShowAddendumForm...");
-      uiActions.setShowAddendumForm(true);
-      console.log("Both actions completed successfully!");
-    } catch (error) {
-      console.error("Error in handleAddendumClick:", error);
+  const agreementAddendumsMap = useMemo(() => {
+    const map = new Map();
+    if (agreements && addendums?.addendums) {
+      agreements.forEach((agreement) => {
+        map.set(agreement.id, addendums.addendums.filter(add => add.parentAgreementId === agreement.id));
+      });
     }
+    return map;
+  }, [agreements, addendums?.addendums]);
+
+  const handleAddendumClick = (agreement) => {
+    uiActions.setEditingAddendum({
+      parentAgreementId: agreement.id,
+      parentAgreementTitle: agreement.clientName || agreement.title || `Agreement ${agreement.id}`,
+      parentAgreementBranches: getBranchNames(agreement.selectedBranches) || "All Branches",
+    });
+    uiActions.setShowAddendumForm(true);
   };
 
   const handleEditAddendum = (addendum) => {
-    console.log("Editing addendum:", addendum);
     uiActions.setEditingAddendum(addendum);
     uiActions.setShowAddendumForm(true);
   };
 
   const handleAddendumSubmit = (addendumData) => {
-    if (onAddendumSubmit) {
-      onAddendumSubmit(addendumData);
-    }
+    onAddendumSubmit?.(addendumData);
     setShowAddendumForm(false);
     setSelectedAgreement(null);
     setEditingAddendum(null);
@@ -126,182 +96,30 @@ const AgreementCards = ({
     setSelectedAgreement(null);
   };
 
-  const handleViewAgreement = (agreement) => {
-    setViewingAgreement(agreement);
-  };
-
-  const handleCloseView = () => {
-    setViewingAgreement(null);
-  };
-
-  // Handle status change for addendums
-  const handleStatusChange = (addendumId, newStatus) => {
-    console.log('Status change requested:', addendumId, newStatus);
-    
-    // First close the modal to prevent state conflicts
-    setShowAddendumModal(false);
-    setSelectedAddendum(null);
-    
-    // Then update the status after a short delay
-    setTimeout(() => {
-      if (onAddendumStatusUpdate) {
-        console.log('Calling onAddendumStatusUpdate:', addendumId, newStatus);
-        onAddendumStatusUpdate(addendumId, newStatus);
-      } else {
-        console.log('onAddendumStatusUpdate is not available');
-      }
-    }, 100);
-  };
-
-  // Handle review addendum
   const handleReviewAddendum = (addendum) => {
     setSelectedAddendum(addendum);
     setShowAddendumModal(true);
   };
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case "Approved":
-        return "bg-green-100 text-green-800 border-green-200";
-      case "Pending Review":
-        return "bg-yellow-100 text-yellow-800 border-yellow-200";
-      case "Rejected":
-        return "bg-red-100 text-red-800 border-red-200";
-      case "Under Review":
-        return "bg-blue-100 text-blue-800 border-blue-200";
-      default:
-        return "bg-gray-100 text-gray-800 border-gray-200";
-    }
+  const closeAddendumModal = () => {
+    setShowAddendumModal(false);
+    setSelectedAddendum(null);
+    setPendingStatusChange(null);
   };
 
-  const getPriorityColor = (priority) => {
-    switch (priority) {
-      case "High":
-        return "bg-red-100 text-red-700 border-red-200";
-      case "Medium":
-        return "bg-yellow-100 text-yellow-700 border-yellow-200";
-      case "Low":
-        return "bg-blue-100 text-blue-700 border-blue-200";
-      default:
-        return "bg-gray-100 text-gray-700 border-gray-200";
-    }
+  const handleOpenDocument = (name, size, type) => {
+    toast(`${name}`, { description: `${type} • ${size}` });
   };
 
-  // Memoized function to get addendums for a specific agreement
-  const getAgreementAddendums = useMemo(() => {
-    return (agreementId) => {
-      console.log("=== GETTING ADDENDUMS FOR AGREEMENT (MEMOIZED) ===");
-      console.log("Agreement ID:", agreementId);
-      console.log("Agreement ID type:", typeof agreementId);
-      console.log("All addendums:", addendums);
-      console.log("Addendums type:", typeof addendums);
-      console.log("Addendums length:", addendums?.addendums?.length);
-      
-      const addendumsList = addendums?.addendums || [];
-      if (!addendumsList || addendumsList.length === 0) {
-        console.log("No addendums available");
-        return [];
-      }
-      
-      console.log("Available addendums for filtering:");
-      addendumsList.forEach((addendum, index) => {
-        console.log(`Addendum ${index}:`, {
-          id: addendum.id,
-          parentAgreementId: addendum.parentAgreementId,
-          parentAgreementIdType: typeof addendum.parentAgreementId,
-          title: addendum.title,
-          isDemo: addendum.isDemo
-        });
-      });
-      
-      const filtered = addendumsList.filter(addendum => {
-        const matches = addendum.parentAgreementId === agreementId;
-        console.log(`Checking addendum ${addendum.id}: parentAgreementId="${addendum.parentAgreementId}" === agreementId="${agreementId}" = ${matches}`);
-        return matches;
-      });
-      
-      console.log(`Filtered addendums for agreement ${agreementId}:`, filtered);
-      console.log(`Found ${filtered.length} addendums for agreement ${agreementId}`);
-      return filtered;
-    };
-  }, [addendums?.addendums]);
-
-  // Pre-calculate addendums for all agreements
-  const agreementAddendumsMap = useMemo(() => {
-    console.log("=== PRE-CALCULATING ADDENDUMS FOR ALL AGREEMENTS ===");
-    console.log("agreements:", agreements);
-    console.log("addendums?.addendums:", addendums?.addendums);
-    console.log("agreements length:", agreements?.length);
-    console.log("addendums length:", addendums?.addendums?.length);
-    
-    const map = new Map();
-    
-    if (agreements && addendums?.addendums) {
-      console.log("Processing agreements and addendums...");
-      agreements.forEach((agreement, index) => {
-        console.log(`Processing agreement ${index}: ${agreement.id}`);
-        const addendumsForAgreement = addendums.addendums.filter(add => {
-          const matches = add.parentAgreementId === agreement.id;
-          console.log(`  Checking addendum ${add.id} (parent: ${add.parentAgreementId}) against agreement ${agreement.id}: ${matches}`);
-          return matches;
-        });
-        map.set(agreement.id, addendumsForAgreement);
-        console.log(`Agreement ${agreement.id} has ${addendumsForAgreement.length} addendums:`, addendumsForAgreement);
-      });
-    } else {
-      console.log("Missing data - agreements:", !!agreements, "addendums:", !!addendums?.addendums);
-    }
-    
-    console.log("Final agreement addendums map:", map);
-    console.log("Map size:", map.size);
-    console.log("Map entries:", Array.from(map.entries()));
-    
-    // Test STATIC-006 specifically
-    const static006Addendums = map.get("STATIC-006");
-    console.log("STATIC-006 addendums from map:", static006Addendums);
-    console.log("STATIC-006 addendums count from map:", static006Addendums?.length || 0);
-    
-    return map;
-  }, [agreements, addendums?.addendums, addendums?.addendums?.length, addendums?.addendums?.map(add => add.id).join(',')]);
-
-  // Component is ready to render
-  console.log("=== AGREEMENT CARDS - AGREEMENTS DATA ===");
-  console.log("Agreements:", agreements);
-  console.log("Agreements length:", agreements?.length);
-  
-  // Debug agreement IDs
-  if (agreements && agreements.length > 0) {
-    console.log("Available agreement IDs:");
-    agreements.forEach((agreement, index) => {
-      console.log(`Agreement ${index}: ID="${agreement.id}", Client="${agreement.clientName || agreement.selectedClient}"`);
-    });
-  }
-  console.log("Addendums:", addendums);
-  console.log("Addendums length:", addendums?.length);
-  
-  if (agreements && agreements.length > 0) {
-    console.log("First agreement:", agreements[0]);
-    console.log("First agreement ID:", agreements[0].id);
-  }
-  if (addendums && addendums.length > 0) {
-    console.log("First addendum:", addendums[0]);
-    console.log("First addendum parentAgreementId:", addendums[0].parentAgreementId);
-  }
-
-  // Show loading state if agreements are not yet loaded
   if (!agreements || agreements.length === 0) {
     return (
-      <div className="max-w-7xl mx-auto px-6 py-8">
-        <div className="bg-white rounded-lg shadow-lg border border-gray-200">
-          <div className="p-6 border-b border-gray-200">
-            <h1 className="text-3xl font-bold text-gray-900">Agreements</h1>
-            <p className="text-sm text-gray-600 mt-2">Manage and review all agreements in chronological order</p>
-          </div>
-          <div className="p-6 text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading agreements...</p>
-          </div>
-        </div>
+      <div className="mx-auto max-w-7xl px-6 py-8">
+        <Card>
+          <CardContent className="py-12 text-center">
+            <div className="mx-auto mb-4 size-10 animate-spin rounded-full border-b-2 border-primary" />
+            <p className="text-muted-foreground">Loading agreements...</p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -309,14 +127,10 @@ const AgreementCards = ({
   if (showAddendumForm) {
     return (
       <div className="px-8 py-6">
-        <div className="mb-6">
-          <button
-            onClick={() => setShowAddendumForm(false)}
-            className="flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium"
-          >
-            ← Back to Agreements
-          </button>
-        </div>
+        <Button variant="ghost" className="mb-6 gap-2 px-0" onClick={() => setShowAddendumForm(false)}>
+          <ArrowLeft className="size-4" />
+          Back to Agreements
+        </Button>
         <AddendumForm
           onSubmit={handleAddendumSubmit}
           editingAddendum={editingAddendum}
@@ -329,676 +143,421 @@ const AgreementCards = ({
   }
 
   if (viewingAgreement) {
+    const agreementAddendums = agreementAddendumsMap.get(viewingAgreement.id) || [];
+    const clausesWithDocuments = (viewingAgreement.importantClauses || []).filter((clause) => {
+      if (!clause || typeof clause !== 'object') return false;
+      if (Array.isArray(clause.documents) && clause.documents.length > 0) return true;
+      if (clause.file) return true;
+      return false;
+    });
+    const hasAnyUploadedDocuments = viewingAgreement.uploadStatuses &&
+      Object.values(viewingAgreement.uploadStatuses).some(status => status?.uploaded);
+
     return (
       <div className="px-8 py-6">
-        <div className="mb-6">
-          <button
-            onClick={handleCloseView}
-            className="flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium"
-          >
-            ← Back to Agreements
-          </button>
-        </div>
-        
-        {/* Agreement Details View */}
-        <div className="bg-white rounded-lg shadow-lg border border-gray-200">
-          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 px-6 py-4 border-b border-gray-200">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="text-2xl">📄</div>
-                <div>
-                  <h1 className="text-2xl font-bold text-gray-900">
-                    Agreement Details - {viewingAgreement.selectedClient}
-                  </h1>
-                  <p className="text-sm text-gray-600">
-                    Agreement ID: {viewingAgreement.id} • Submitted on {new Date(viewingAgreement.submittedDate).toLocaleDateString()}
-                  </p>
-                </div>
+        <Button variant="ghost" className="mb-6 gap-2 px-0" onClick={() => setViewingAgreement(null)}>
+          <ArrowLeft className="size-4" />
+          Back to Agreements
+        </Button>
+
+        <Card>
+          <div className="flex items-center justify-between border-b bg-muted/40 px-6 py-4">
+            <div className="flex items-center gap-4">
+              <FileText className="size-6 text-primary" />
+              <div>
+                <h1 className="text-xl font-semibold">
+                  Agreement Details - {viewingAgreement.selectedClient}
+                </h1>
+                <p className="text-sm text-muted-foreground">
+                  Agreement ID: {viewingAgreement.id} • Submitted on {formatDate(viewingAgreement.submittedDate)}
+                </p>
               </div>
-              <div className="flex items-center gap-3">
-                <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getStatusColor(viewingAgreement.status)}`}>
-                  {viewingAgreement.status}
-                </span>
-                {/* Priority Badge - Only for Approver Role */}
-                {userRole?.toLowerCase() !== "checker" && viewingAgreement.priority && (
-                  <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPriorityColor(viewingAgreement.priority)}`}>
-                    {viewingAgreement.priority}
-                  </span>
-                )}
-              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge className={statusBadgeClass(viewingAgreement.status)}>{viewingAgreement.status}</Badge>
+              {userRole?.toLowerCase() !== "checker" && viewingAgreement.priority && (
+                <Badge className={priorityBadgeClass(viewingAgreement.priority)}>{viewingAgreement.priority}</Badge>
+              )}
             </div>
           </div>
 
-          <div className="px-6 py-8">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Left Column */}
+          <CardContent className="py-6">
+            <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
               <div className="space-y-6">
-                {/* Client Information */}
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-800 mb-3 border-b border-gray-200 pb-2">Client Information</h3>
-                  <div className="space-y-3">
-                    <div className="flex justify-between">
-                      <span className="font-medium text-gray-600">Client Name:</span>
-                      <span className="text-gray-900">{viewingAgreement.selectedClient}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="font-medium text-gray-600">Department:</span>
-                      <span className="text-gray-900">{viewingAgreement.selectedDepartment || "N/A"}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="font-medium text-gray-600">Entity Type:</span>
-                      <span className="text-gray-900">{viewingAgreement.entityType || "N/A"}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="font-medium text-gray-600">Submitted By:</span>
-                      <span className="text-gray-900">{viewingAgreement.submittedBy || "N/A"}</span>
-                    </div>
-                  </div>
-                </div>
+                <section>
+                  <h3 className="mb-3 border-b pb-2 text-base font-semibold">Client Information</h3>
+                  <dl className="space-y-2 text-sm">
+                    <div className="flex justify-between"><dt className="text-muted-foreground">Client Name:</dt><dd>{viewingAgreement.selectedClient}</dd></div>
+                    <div className="flex justify-between"><dt className="text-muted-foreground">Department:</dt><dd>{viewingAgreement.selectedDepartment || "N/A"}</dd></div>
+                    <div className="flex justify-between"><dt className="text-muted-foreground">Entity Type:</dt><dd>{viewingAgreement.entityType || "N/A"}</dd></div>
+                    <div className="flex justify-between"><dt className="text-muted-foreground">Submitted By:</dt><dd className="capitalize">{viewingAgreement.submittedBy || "N/A"}</dd></div>
+                  </dl>
+                </section>
 
-                {/* Agreement Details */}
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-800 mb-3 border-b border-gray-200 pb-2">Agreement Details</h3>
-                  <div className="space-y-3">
-                    <div className="flex justify-between">
-                      <span className="font-medium text-gray-600">Agreement Type:</span>
-                      <span className="text-gray-900">{viewingAgreement.agreementType || "N/A"}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="font-medium text-gray-600">Start Date:</span>
-                      <span className="text-gray-900">
-                        {viewingAgreement.startDate ? new Date(viewingAgreement.startDate).toLocaleDateString() : "N/A"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="font-medium text-gray-600">End Date:</span>
-                      <span className="text-gray-900">
-                        {viewingAgreement.endDate ? new Date(viewingAgreement.endDate).toLocaleDateString() : "N/A"}
-                      </span>
-                    </div>
+                <section>
+                  <h3 className="mb-3 border-b pb-2 text-base font-semibold">Agreement Details</h3>
+                  <dl className="space-y-2 text-sm">
+                    <div className="flex justify-between"><dt className="text-muted-foreground">Agreement Type:</dt><dd>{viewingAgreement.agreementType || "N/A"}</dd></div>
+                    <div className="flex justify-between"><dt className="text-muted-foreground">Start Date:</dt><dd>{formatDate(viewingAgreement.startDate)}</dd></div>
+                    <div className="flex justify-between"><dt className="text-muted-foreground">End Date:</dt><dd>{formatDate(viewingAgreement.endDate)}</dd></div>
+                  </dl>
+                </section>
 
-                  </div>
-                </div>
-
-                {/* Branches */}
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-800 mb-3 border-b border-gray-200 pb-2">Branches</h3>
+                <section>
+                  <h3 className="mb-3 border-b pb-2 text-base font-semibold">Branches</h3>
                   <div className="space-y-2">
                     {viewingAgreement.selectedBranches && viewingAgreement.selectedBranches.length > 0 ? (
                       viewingAgreement.selectedBranches.map((branch, idx) => (
-                        <div key={branch.id || idx} className="bg-gray-50 rounded-lg p-3">
-                          <div className="font-medium text-gray-800">
-                            {typeof branch === 'string' ? branch : branch.name}
-                          </div>
-                          {typeof branch === 'object' && branch.address && <div className="text-sm text-gray-600">{branch.address}</div>}
-                          {typeof branch === 'object' && branch.manager && <div className="text-sm text-gray-600">Manager: {branch.manager}</div>}
+                        <div key={branch.id || idx} className="rounded-lg bg-muted/50 p-3">
+                          <div className="font-medium">{typeof branch === 'string' ? branch : branch.name}</div>
+                          {typeof branch === 'object' && branch.address && <div className="text-sm text-muted-foreground">{branch.address}</div>}
+                          {typeof branch === 'object' && branch.manager && <div className="text-sm text-muted-foreground">Manager: {branch.manager}</div>}
                         </div>
                       ))
                     ) : (
-                      <span className="text-gray-500">No branches specified</span>
+                      <span className="text-sm text-muted-foreground">No branches specified</span>
                     )}
                   </div>
-                </div>
+                </section>
               </div>
 
-              {/* Right Column */}
               <div className="space-y-6">
-                {/* Important Clauses */}
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-800 mb-3 border-b border-gray-200 pb-2">Important Clauses</h3>
+                <section>
+                  <h3 className="mb-3 border-b pb-2 text-base font-semibold">Important Clauses</h3>
                   <div className="space-y-2">
-                    {(() => {
-                      // Filter clauses to only show those with uploaded documents
-                      const clausesWithDocuments = (viewingAgreement.importantClauses || []).filter(clause => {
-                        if (!clause) return false;
-                        
-                        // Check if clause has its own documents array with files (for demo data)
-                        if (typeof clause === 'object' && clause.documents && Array.isArray(clause.documents) && clause.documents.length > 0) {
-                          return true;
-                        }
-                        
-                        // Check if clause has a file property with uploaded file (for new agreements)
-                        if (typeof clause === 'object' && clause.file && clause.file !== null) {
-                          return true;
-                        }
-                        
-                        // For string clauses, don't show them unless they have their own documents
-                        if (typeof clause === 'string') {
-                          return false;
-                        }
-                        
-                        return false;
-                      });
-                      
-                      // Check if there are any uploaded documents at all
-                      const hasAnyUploadedDocuments = viewingAgreement.uploadStatuses && Object.keys(viewingAgreement.uploadStatuses).some(docType => 
-                        viewingAgreement.uploadStatuses[docType]?.uploaded
-                      );
-                      
-                      console.log("=== AGREEMENT CARDS - IMPORTANT CLAUSES FILTERING ===");
-                      console.log("Agreement ID:", viewingAgreement.id);
-                      console.log("Important clauses:", viewingAgreement.importantClauses);
-                      console.log("Clauses with documents:", clausesWithDocuments);
-                      console.log("Has any uploaded documents:", hasAnyUploadedDocuments);
-                      console.log("Upload statuses:", viewingAgreement.uploadStatuses);
-                      
-                      if (clausesWithDocuments.length === 0 || !hasAnyUploadedDocuments) {
-                        return <span className="text-gray-500">No clauses with documents uploaded</span>;
-                      }
-                      
-                      return clausesWithDocuments.map((clause, idx) => (
-                        <div key={idx} className="flex items-center gap-2 bg-blue-50 rounded-lg p-3 cursor-pointer hover:bg-blue-100 transition-colors"
-                             onClick={() => {
-                               const clauseTitle = typeof clause === 'string' ? clause : (clause.title || 'Untitled Clause');
-                               
-                               // Check if clause has documents to open
-                               if (typeof clause === 'object' && clause.documents && Array.isArray(clause.documents) && clause.documents.length > 0) {
-                                 // Open the first document (demo data)
-                                 const firstDoc = clause.documents[0];
-                                 alert(`Opening document: ${firstDoc.name}\nSize: ${firstDoc.size}\nType: ${firstDoc.type}\n\nThis is demo data. In a real application, this would open the actual document.`);
-                               } else if (typeof clause === 'object' && clause.file && clause.file !== null) {
-                                 // Open the clause file (new agreements)
-                                 alert(`Opening document: ${clause.file.name}\nSize: ${clause.file.size}\nType: ${clause.file.type}\n\nThis is demo data. In a real application, this would open the actual document.`);
-                               } else {
-                                 alert(`Clause: ${clauseTitle}\n\nNo document uploaded for this clause.`);
-                               }
-                             }}>
-                          <span className="text-blue-600">📋</span>
-                          <span className="text-gray-800">
-                            {typeof clause === 'string' ? clause : (clause.title || 'Untitled Clause')}
-                          </span>
-                        </div>
-                      ));
-                    })()}
+                    {clausesWithDocuments.length === 0 || !hasAnyUploadedDocuments ? (
+                      <span className="text-sm text-muted-foreground">No clauses with documents uploaded</span>
+                    ) : (
+                      clausesWithDocuments.map((clause, idx) => {
+                        const title = typeof clause === 'string' ? clause : (clause.title || 'Untitled Clause');
+                        const doc = Array.isArray(clause.documents) && clause.documents.length > 0 ? clause.documents[0] : clause.file;
+                        return (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => doc
+                              ? handleOpenDocument(doc.name, doc.size, doc.type)
+                              : toast.info(`${title}: no document uploaded for this clause.`)}
+                            className="flex w-full items-center gap-2 rounded-lg bg-blue-50 p-3 text-left transition-colors hover:bg-blue-100 dark:bg-blue-500/10 dark:hover:bg-blue-500/20"
+                          >
+                            <ClipboardList className="size-4 text-blue-600" />
+                            <span>{title}</span>
+                          </button>
+                        );
+                      })
+                    )}
                   </div>
-                </div>
+                </section>
 
-                {/* Documents */}
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-800 mb-3 border-b border-gray-200 pb-2">Documents</h3>
+                <section>
+                  <h3 className="mb-3 border-b pb-2 text-base font-semibold">Documents</h3>
                   <div className="space-y-2">
                     {viewingAgreement.uploadedFiles && Object.keys(viewingAgreement.uploadedFiles).length > 0 ? (
                       Object.entries(viewingAgreement.uploadedFiles).map(([type, file]) => (
-                        <div key={type} className="flex items-center justify-between bg-green-50 rounded-lg p-3">
+                        <div key={type} className="flex items-center justify-between rounded-lg bg-green-50 p-3 dark:bg-green-500/10">
                           <div className="flex items-center gap-2">
-                            <span className="text-green-600">📄</span>
-                            <span className="text-gray-800">{type}: {file.name}</span>
+                            <FileText className="size-4 text-green-600" />
+                            <span>{type}: {file.name}</span>
                           </div>
-                          <span className="text-sm text-gray-600">{file.size}</span>
+                          <span className="text-sm text-muted-foreground">{file.size}</span>
                         </div>
                       ))
                     ) : (
-                      <span className="text-gray-500">No documents uploaded</span>
+                      <span className="text-sm text-muted-foreground">No documents uploaded</span>
                     )}
                   </div>
-                </div>
+                </section>
 
-                {/* Addendums */}
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-800 mb-3 border-b border-gray-200 pb-2">Addendums</h3>
+                <section>
+                  <h3 className="mb-3 border-b pb-2 text-base font-semibold">Addendums</h3>
                   <div className="space-y-2">
-                    {(() => {
-                      const agreementAddendums = agreementAddendumsMap.get(viewingAgreement.id) || [];
-                      console.log("=== AGREEMENT CARDS - ADDENDUM DISPLAY ===");
-                      console.log("Viewing agreement ID:", viewingAgreement.id);
-                      console.log("Found addendums:", agreementAddendums);
-                      console.log("Addendums length:", agreementAddendums.length);
-                      return agreementAddendums.length > 0 ? (
-                        agreementAddendums.map((addendum, idx) => (
-                          <div key={addendum.id} className="bg-purple-50 rounded-lg p-3">
-                            <div className="flex items-center justify-between mb-2">
-                              <div className="flex items-center gap-2">
-                                <span className="text-purple-600">📝</span>
-                                <span className="font-medium text-gray-800">{addendum.title}</span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusColor(addendum.status)}`}>
-                                  {addendum.status}
-                                </span>
-                                <button
-                                  onClick={() => handleReviewAddendum(addendum)}
-                                  className="bg-blue-600 text-white px-3 py-1 rounded text-xs hover:bg-blue-700 transition-colors"
-                                >
-                                  👁️ Review
-                                </button>
-                              </div>
+                    {agreementAddendums.length > 0 ? (
+                      agreementAddendums.map((addendum) => (
+                        <div key={addendum.id} className="rounded-lg bg-purple-50 p-3 dark:bg-purple-500/10">
+                          <div className="mb-2 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <FilePlus2 className="size-4 text-purple-600" />
+                              <span className="font-medium">{addendum.title}</span>
                             </div>
-                            <div className="text-sm text-gray-600">{addendum.description}</div>
-                            <div className="text-xs text-gray-500 mt-2">
-                              Effective: {new Date(addendum.effectiveDate).toLocaleDateString()}
+                            <div className="flex items-center gap-2">
+                              <Badge className={statusBadgeClass(addendum.status)}>{addendum.status}</Badge>
+                              <Button size="sm" variant="outline" className="gap-1" onClick={() => handleReviewAddendum(addendum)}>
+                                <Eye className="size-3.5" />
+                                Review
+                              </Button>
                             </div>
                           </div>
-                        ))
-                      ) : (
-                        <span className="text-gray-500">No addendums yet</span>
-                      );
-                    })()}
+                          <div className="text-sm text-muted-foreground">{addendum.description}</div>
+                          <div className="mt-2 text-xs text-muted-foreground">
+                            Effective: {formatDate(addendum.effectiveDate)}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <span className="text-sm text-muted-foreground">No addendums yet</span>
+                    )}
                   </div>
-                </div>
+                </section>
               </div>
             </div>
 
-            {/* Action Buttons */}
-            <div className="mt-8 pt-6 border-t border-gray-200">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <button
+            <div className="mt-8 flex items-center justify-between border-t pt-6">
+              <div className="flex items-center gap-3">
+                <Button
+                  className="gap-2"
+                  onClick={() => {
+                    uiActions.setEditingAddendum({
+                      parentAgreementId: viewingAgreement.id,
+                      parentAgreementTitle: viewingAgreement.clientName || viewingAgreement.title || `Agreement ${viewingAgreement.id}`,
+                      parentAgreementBranches: getBranchNames(viewingAgreement.selectedBranches) || "All Branches",
+                    });
+                    uiActions.setShowAddendumForm(true);
+                    setViewingAgreement(null);
+                  }}
+                >
+                  <FilePlus2 className="size-4" />
+                  Add Addendum
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  {agreementAddendums.length} addendum{agreementAddendums.length !== 1 ? 's' : ''} attached
+                </span>
+              </div>
+
+              <div className="flex items-center gap-3">
+                {userRole === "Checker" && (
+                  <Button
+                    variant="outline"
+                    className="gap-2"
                     onClick={() => {
-                      console.log("Opening addendum form from modal for agreement:", viewingAgreement);
-                      uiActions.setEditingAddendum({
-                        parentAgreementId: viewingAgreement.id,
-                        parentAgreementTitle: viewingAgreement.clientName || viewingAgreement.title || `Agreement ${viewingAgreement.id}`,
-                        parentAgreementBranches: (() => {
-                          if (!viewingAgreement.selectedBranches || viewingAgreement.selectedBranches.length === 0) {
-                            return "All Branches";
-                          }
-                          return viewingAgreement.selectedBranches.map(branch => 
-                            typeof branch === 'string' ? branch : branch.name
-                          ).join(", ");
-                        })()
-                      });
-                      uiActions.setShowAddendumForm(true);
+                      onEditAgreement(viewingAgreement);
                       setViewingAgreement(null);
                     }}
-                    className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
                   >
-                    <span>📝</span>
-                    Add Addendum
-                  </button>
-                  <span className="text-sm text-gray-600">
-                    {(agreementAddendumsMap.get(viewingAgreement.id) || []).length} addendum{(agreementAddendumsMap.get(viewingAgreement.id) || []).length !== 1 ? 's' : ''} attached
-                  </span>
-                </div>
-                
-                <div className="flex items-center gap-3">
-                  {userRole === "checker" && (
-                    <button
-                      onClick={() => {
-                        onEditAgreement(viewingAgreement);
-                        setViewingAgreement(null);
-                      }}
-                      className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
-                    >
-                      <span>✏️</span>
-                      Edit Agreement
-                    </button>
-                  )}
-                  <button
-                    onClick={handleCloseView}
-                    className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-2"
-                  >
-                    <span>✕</span>
-                    Close
-                  </button>
-                </div>
+                    <Pencil className="size-4" />
+                    Edit Agreement
+                  </Button>
+                )}
+                <Button variant="secondary" className="gap-2" onClick={() => setViewingAgreement(null)}>
+                  <X className="size-4" />
+                  Close
+                </Button>
               </div>
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       </div>
     );
   }
 
   return (
-    <div className="px-8 py-6">
-      <div className="mb-8">
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">Agreements</h2>
-        <p className="text-gray-600">Manage and review all agreements in chronological order</p>
+    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mb-6">
+        <h1 className="text-2xl font-semibold text-foreground">Agreements</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Manage and review all agreements in chronological order</p>
       </div>
 
-
       {sortedAgreements.length === 0 ? (
-        <div className="text-center py-12">
-          <div className="text-6xl mb-4">📋</div>
-          <h3 className="text-xl font-semibold text-gray-900 mb-2">No Agreements Yet</h3>
-          <p className="text-gray-600">Create your first agreement to get started</p>
-        </div>
+        <Card>
+          <CardContent className="py-12 text-center">
+            <Inbox className="mx-auto mb-4 size-10 text-muted-foreground" />
+            <h3 className="mb-2 text-lg font-semibold">No Agreements Yet</h3>
+            <p className="text-muted-foreground">Create your first agreement to get started</p>
+          </CardContent>
+        </Card>
       ) : (
         <div className="space-y-6">
-          {sortedAgreements.map((agreement, index) => {
-            // Try Map first, then fallback to direct filtering
-            let agreementAddendums = agreementAddendumsMap.get(agreement.id) || [];
-            
-            // Fallback: direct filtering if Map is empty
-            if (agreementAddendums.length === 0 && addendums?.addendums) {
-              console.log("Map returned empty, trying direct filtering...");
-              agreementAddendums = addendums.addendums.filter(add => add.parentAgreementId === agreement.id);
-              console.log("Direct filtering result:", agreementAddendums);
-            }
-            
-            console.log(`=== AGREEMENT CARD ${index} ===`);
-            console.log("Agreement ID:", agreement.id);
-            console.log("Agreement ID type:", typeof agreement.id);
-            console.log("Map has key:", agreementAddendumsMap.has(agreement.id));
-            console.log("Map size:", agreementAddendumsMap.size);
-            console.log("Map keys:", Array.from(agreementAddendumsMap.keys()));
-            console.log("Agreement addendums from map:", agreementAddendums);
-            console.log("Addendums count:", agreementAddendums.length);
-            console.log("Will render addendums:", agreementAddendums.length > 0);
-            
-            // Additional debugging for dynamic addendums
-            if (addendums?.addendums) {
-              const allAddendums = addendums.addendums;
-              console.log("All addendums in Redux:", allAddendums.map(a => ({
-                id: a.id,
-                title: a.title,
-                parentAgreementId: a.parentAgreementId,
-                isDemo: a.isDemo
-              })));
-              
-              const matchingAddendums = allAddendums.filter(add => add.parentAgreementId === agreement.id);
-              console.log(`Matching addendums for ${agreement.id}:`, matchingAddendums);
-            }
-            
+          {sortedAgreements.map((agreement) => {
+            const agreementAddendums = agreementAddendumsMap.get(agreement.id) || [];
+            const branchNames = getBranchNames(agreement.selectedBranches);
+
             return (
-              <div key={agreement.id} className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden">
-                {/* Header */}
-                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 px-6 py-4 border-b border-gray-200">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="text-2xl">📄</div>
-                      <div>
-                        <h3 className="text-lg font-bold text-gray-900">
-                          Agreement #{agreement.id}
-                        </h3>
-                        <p className="text-sm text-gray-600">
-                          Submitted on {new Date(agreement.submittedDate).toLocaleDateString()}
-                        </p>
-                      </div>
+              <Card key={agreement.id} className="overflow-hidden pt-0">
+                <div className="flex items-center justify-between border-b bg-muted/40 px-6 py-4">
+                  <div className="flex items-center gap-4">
+                    <FileText className="size-6 text-primary" />
+                    <div>
+                      <h3 className="font-semibold">Agreement #{agreement.id}</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Submitted on {formatDate(agreement.submittedDate)}
+                      </p>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getStatusColor(agreement.status)}`}>
-                        {agreement.status}
-                      </span>
-                      {/* Priority Badge - Only for Approver Role */}
-                      {userRole?.toLowerCase() !== "checker" && agreement.priority && (
-                        <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPriorityColor(agreement.priority)}`}>
-                          {agreement.priority}
-                        </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge className={statusBadgeClass(agreement.status)}>{agreement.status}</Badge>
+                    {userRole?.toLowerCase() !== "checker" && agreement.priority && (
+                      <Badge className={priorityBadgeClass(agreement.priority)}>{agreement.priority}</Badge>
+                    )}
+                  </div>
+                </div>
+
+                <CardContent className="py-4">
+                  <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+                    <div>
+                      <h4 className="mb-2 font-semibold">Client Details</h4>
+                      <dl className="space-y-1.5 text-sm">
+                        <div><dt className="inline text-muted-foreground">Client:</dt> <dd className="inline">{agreement.selectedClient}</dd></div>
+                        <div><dt className="inline text-muted-foreground">Branches:</dt> <dd className="inline">{branchNames || "N/A"}</dd></div>
+                        <div><dt className="inline text-muted-foreground">Submitted By:</dt> <dd className="inline capitalize">{agreement.submittedBy || "N/A"}</dd></div>
+                      </dl>
+                    </div>
+
+                    <div>
+                      <h4 className="mb-2 font-semibold">Agreement Details</h4>
+                      <dl className="space-y-1.5 text-sm">
+                        <div><dt className="inline text-muted-foreground">Start Date:</dt> <dd className="inline">{formatDate(agreement.startDate)}</dd></div>
+                        <div><dt className="inline text-muted-foreground">End Date:</dt> <dd className="inline">{formatDate(agreement.endDate)}</dd></div>
+                      </dl>
+                    </div>
+
+                    <div>
+                      <h4 className="mb-2 font-semibold">Addendums</h4>
+                      {agreementAddendums.length > 0 ? (
+                        <div className="space-y-2">
+                          {agreementAddendums.slice(0, 3).map((addendum) => (
+                            <div key={addendum.id} className="flex items-center justify-between rounded bg-muted/50 px-3 py-2">
+                              <span className="max-w-32 truncate text-sm font-medium">{addendum.title}</span>
+                              <div className="flex items-center gap-1.5">
+                                <Button
+                                  size="icon-xs"
+                                  variant="ghost"
+                                  onClick={() => handleEditAddendum(addendum)}
+                                  title="Edit Addendum"
+                                >
+                                  <Pencil className="size-3.5" />
+                                </Button>
+                                <Badge className={statusBadgeClass(addendum.status)}>{addendum.status}</Badge>
+                              </div>
+                            </div>
+                          ))}
+                          {agreementAddendums.length > 3 && (
+                            <div className="text-center text-xs text-muted-foreground">
+                              +{agreementAddendums.length - 3} more addendums
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">No addendums yet</span>
                       )}
                     </div>
                   </div>
-                </div>
 
-                {/* Content */}
-                <div className="px-6 py-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {/* Client Information */}
-                    <div>
-                      <h4 className="font-semibold text-gray-800 mb-2">Client Details</h4>
-                      <div className="space-y-2 text-sm">
-                        <div>
-                          <span className="font-medium text-gray-600">Client:</span>
-                          <span className="ml-2 text-gray-900">{agreement.selectedClient}</span>
-                        </div>
-                        <div>
-                          <span className="font-medium text-gray-600">Branches:</span>
-                          <span className="ml-2 text-gray-900">
-                            {(() => {
-                              if (!agreement.selectedBranches || agreement.selectedBranches.length === 0) {
-                                return "N/A";
-                              }
-                              // Handle both string arrays and object arrays
-                              return agreement.selectedBranches.map(branch => 
-                                typeof branch === 'string' ? branch : branch.name
-                              ).join(", ");
-                            })()}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="font-medium text-gray-600">Submitted By:</span>
-                          <span className="ml-2 text-gray-900">{agreement.submittedBy || "N/A"}</span>
-                        </div>
-                      </div>
+                  <div className="mt-6 flex items-center justify-between border-t pt-4">
+                    <div className="flex items-center gap-3">
+                      <Button className="gap-2" onClick={() => handleAddendumClick(agreement)}>
+                        <FilePlus2 className="size-4" />
+                        Add Addendum
+                      </Button>
+                      {agreementAddendums.length > 0 && (
+                        <span className="text-sm text-muted-foreground">
+                          {agreementAddendums.length} addendum{agreementAddendums.length !== 1 ? 's' : ''} attached
+                        </span>
+                      )}
                     </div>
 
-                    {/* Agreement Details */}
-                    <div>
-                      <h4 className="font-semibold text-gray-800 mb-2">Agreement Details</h4>
-                      <div className="space-y-2 text-sm">
-                        <div>
-                          <span className="font-medium text-gray-600">Start Date:</span>
-                          <span className="ml-2 text-gray-900">
-                            {agreement.startDate ? new Date(agreement.startDate).toLocaleDateString() : "N/A"}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="font-medium text-gray-600">End Date:</span>
-                          <span className="ml-2 text-gray-900">
-                            {agreement.endDate ? new Date(agreement.endDate).toLocaleDateString() : "N/A"}
-                          </span>
-                        </div>
-
-                      </div>
-                    </div>
-
-                    {/* Addendums */}
-                    <div>
-                      <h4 className="font-semibold text-gray-800 mb-2">Addendums</h4>
-                      <div className="space-y-2">
-                        {(() => {
-                          console.log(`=== ADDENDUM DISPLAY FOR AGREEMENT ${agreement.id} ===`);
-                          console.log("agreementAddendums:", agreementAddendums);
-                          console.log("agreementAddendums.length:", agreementAddendums.length);
-                          console.log("Will show addendums:", agreementAddendums.length > 0);
-                          console.log("agreementAddendums type:", typeof agreementAddendums);
-                          console.log("agreementAddendums is array:", Array.isArray(agreementAddendums));
-                          
-                          // Force render test
-                          if (agreementAddendums.length > 0) {
-                            console.log("RENDERING ADDENDUMS - SHOULD BE VISIBLE!");
-                            console.log("First addendum:", agreementAddendums[0]);
-                          }
-                          
-                          // Test: Force render a test addendum for STATIC-006
-                          const testAddendum = agreement.id === "STATIC-006" ? {
-                            id: "TEST-FORCE-RENDER",
-                            title: "FORCE RENDER TEST",
-                            status: "Test"
-                          } : null;
-                          
-                          const addendumsToRender = agreementAddendums.length > 0 ? agreementAddendums : (testAddendum ? [testAddendum] : []);
-                          
-                          return addendumsToRender.length > 0 ? (
-                          <div className="space-y-2">
-                              {addendumsToRender.slice(0, 3).map((addendum, idx) => (
-                              <div key={addendum.id} className="flex items-center justify-between bg-gray-50 rounded px-3 py-2">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-sm">📝</span>
-                                  <span className="text-sm font-medium text-gray-700 truncate max-w-32">
-                                    {addendum.title}
-                                  </span>
-                                </div>
-                                <div className="flex gap-1">
-                                  <button
-                                    onClick={() => handleEditAddendum(addendum)}
-                                    className="text-blue-600 hover:text-blue-800 text-xs px-2 py-1 rounded hover:bg-blue-50"
-                                    title="Edit Addendum"
-                                  >
-                                    ✏️
-                                  </button>
-                                  <span className={`px-2 py-1 rounded text-xs font-medium ${getStatusColor(addendum.status)}`}>
-                                    {addendum.status}
-                                  </span>
-                                </div>
-                              </div>
-                            ))}
-                            {addendumsToRender.length > 3 && (
-                              <div className="text-xs text-gray-500 text-center">
-                                +{addendumsToRender.length - 3} more addendums
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-sm text-gray-500">No addendums yet</span>
-                        );
-                        })()}
-                      </div>
+                    <div className="flex items-center gap-3">
+                      {userRole === "Checker" && (
+                        <Button variant="outline" className="gap-2" onClick={() => onEditAgreement(agreement)}>
+                          <Pencil className="size-4" />
+                          Edit Agreement
+                        </Button>
+                      )}
+                      <Button variant="secondary" className="gap-2" onClick={() => setViewingAgreement(agreement)}>
+                        <Eye className="size-4" />
+                        View Details
+                      </Button>
                     </div>
                   </div>
-
-                  {/* Actions */}
-                  <div className="mt-6 pt-4 border-t border-gray-200">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <button
-                          onClick={() => handleAddendumClick(agreement)}
-                          className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
-                        >
-                          <span>📝</span>
-                          Add Addendum
-                        </button>
-                        {agreementAddendums.length > 0 && (
-                          <span className="text-sm text-gray-600">
-                            {agreementAddendums.length} addendum{agreementAddendums.length !== 1 ? 's' : ''} attached
-                          </span>
-                        )}
-                      </div>
-                      
-                      <div className="flex items-center gap-3">
-                        {userRole === "checker" && (
-                          <button
-                            onClick={() => onEditAgreement(agreement)}
-                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
-                          >
-                            <span>✏️</span>
-                            Edit Agreement
-                          </button>
-                        )}
-                                                 <button
-                           onClick={() => handleViewAgreement(agreement)}
-                           className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-2"
-                         >
-                           <span>👁️</span>
-                           View Details
-                         </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
+                </CardContent>
+              </Card>
             );
           })}
         </div>
       )}
 
-      {/* Addendum Review Modal */}
-      {showAddendumModal && selectedAddendum && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-          <div className="bg-white rounded-lg shadow-lg p-6 min-w-[600px] max-w-4xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-bold">Review Addendum - {selectedAddendum.title}</h3>
-              <button 
-                onClick={() => setShowAddendumModal(false)}
-                className="text-gray-500 hover:text-gray-700 text-xl"
-              >
-                ×
-              </button>
-            </div>
-            
-            {/* Addendum Details */}
-            <div className="space-y-4 mb-6">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <span className="font-semibold text-gray-700">Title:</span>
-                  <p className="text-gray-800 mt-1">{selectedAddendum.title}</p>
-                </div>
-                <div>
-                  <span className="font-semibold text-gray-700">Current Status:</span>
-                  <p className="text-gray-800 mt-1">{selectedAddendum.status}</p>
-                </div>
-              </div>
-              
-              <div>
-                <span className="font-semibold text-gray-700">Description:</span>
-                <p className="text-gray-800 mt-1">{selectedAddendum.description}</p>
-              </div>
-              
-              <div>
-                <span className="font-semibold text-gray-700">Submitted By:</span>
-                <p className="text-gray-800 mt-1">{selectedAddendum.submittedBy}</p>
-              </div>
-              
-              <div>
-                <span className="font-semibold text-gray-700">Effective Date:</span>
-                <p className="text-gray-800 mt-1">
-                  {selectedAddendum.effectiveDate ? new Date(selectedAddendum.effectiveDate).toLocaleDateString() : 'Not specified'}
-                </p>
-              </div>
-            </div>
+      <Dialog open={showAddendumModal && !!selectedAddendum} onOpenChange={(open) => !open && closeAddendumModal()}>
+        <DialogContent className="max-w-2xl">
+          {selectedAddendum && (
+            <>
+              <DialogHeader>
+                <DialogTitle>Review Addendum - {selectedAddendum.title}</DialogTitle>
+              </DialogHeader>
 
-            {/* Status Change Section - Only for Approvers */}
-            {userRole?.toLowerCase() === "approver" && (
-              <div className="border-t border-gray-200 pt-4">
-                <h4 className="font-semibold text-gray-800 mb-3">Change Status</h4>
-                
-                <div className="flex items-center gap-3 mb-4">
-                  <select
-                    className="border rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-300 min-w-[140px]"
-                    value={pendingStatusChange || selectedAddendum.status}
-                    onChange={(e) => {
-                      // Just update the local state, don't submit yet
-                      setPendingStatusChange(e.target.value);
-                    }}
-                  >
-                    <option value="Pending">⏳ Pending</option>
-                    <option value="Approved">✅ Approved</option>
-                    <option value="Rejected">❌ Rejected</option>
-                  </select>
-                  
-                  {pendingStatusChange && pendingStatusChange !== selectedAddendum.status && (
-                    <button
-                      onClick={() => {
-                        console.log('Status change confirmed:', selectedAddendum.id, pendingStatusChange);
-                        if (onAddendumStatusUpdate) {
-                          onAddendumStatusUpdate(selectedAddendum.id, pendingStatusChange);
-                          // Clear pending change but keep modal open
-                          setPendingStatusChange(null);
-                          // Modal stays open - user must manually close
-                        }
-                      }}
-                      className="px-4 py-2 bg-green-600 text-white rounded text-sm hover:bg-green-700 transition-colors"
-                    >
-                      Save Status
-                    </button>
-                  )}
-                  
-                  <button
-                    onClick={() => {
-                      setPendingStatusChange(null);
-                      setShowAddendumModal(false);
-                      setSelectedAddendum(null);
-                    }}
-                    className="px-4 py-2 bg-gray-600 text-white rounded text-sm hover:bg-gray-700 transition-colors"
-                  >
-                    Close
-                  </button>
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="font-semibold">Title:</span>
+                    <p className="mt-1">{selectedAddendum.title}</p>
+                  </div>
+                  <div>
+                    <span className="font-semibold">Current Status:</span>
+                    <p className="mt-1">{selectedAddendum.status}</p>
+                  </div>
                 </div>
-                
-                <div className="text-sm text-gray-600 mb-2">
-                  Current Status: <span className="font-semibold">{selectedAddendum.status}</span>
+
+                <div className="text-sm">
+                  <span className="font-semibold">Description:</span>
+                  <p className="mt-1">{selectedAddendum.description}</p>
                 </div>
-                
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                  <p className="text-blue-800 text-sm">
-                    💡 Select a new status from the dropdown above, then click "Save Status" to apply the change. Use "Close" to exit.
+
+                <div className="text-sm">
+                  <span className="font-semibold">Submitted By:</span>
+                  <p className="mt-1">{selectedAddendum.submittedBy}</p>
+                </div>
+
+                <div className="text-sm">
+                  <span className="font-semibold">Effective Date:</span>
+                  <p className="mt-1">
+                    {formatDate(selectedAddendum.effectiveDate, 'Not specified')}
                   </p>
                 </div>
               </div>
-            )}
 
-            {/* Close Button */}
-            <div className="mt-6 flex justify-end">
-              <button
-                onClick={() => setShowAddendumModal(false)}
-                className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+              {userRole?.toLowerCase() === "approver" && (
+                <div className="space-y-3 border-t pt-4">
+                  <h4 className="font-semibold">Change Status</h4>
+
+                  <div className="flex items-center gap-3">
+                    <Select
+                      value={pendingStatusChange || selectedAddendum.status}
+                      onValueChange={(value) => setPendingStatusChange(value)}
+                    >
+                      <SelectTrigger className="min-w-[140px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Pending">Pending</SelectItem>
+                        <SelectItem value="Approved">Approved</SelectItem>
+                        <SelectItem value="Rejected">Rejected</SelectItem>
+                      </SelectContent>
+                    </Select>
+
+                    {pendingStatusChange && pendingStatusChange !== selectedAddendum.status && (
+                      <Button
+                        className="bg-green-600 text-white hover:bg-green-600/90"
+                        onClick={() => {
+                          onAddendumStatusUpdate?.(selectedAddendum.id, pendingStatusChange);
+                          toast.success(`Addendum marked as ${pendingStatusChange}`);
+                          setPendingStatusChange(null);
+                        }}
+                      >
+                        Save Status
+                      </Button>
+                    )}
+                  </div>
+
+                  <p className="text-sm text-muted-foreground">
+                    Select a new status, then click "Save Status" to apply the change.
+                  </p>
+                </div>
+              )}
+
+              <DialogFooter>
+                <Button variant="secondary" onClick={closeAddendumModal}>Close</Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

@@ -1,21 +1,22 @@
 import { createSlice } from '@reduxjs/toolkit';
+import { loadSessionUser } from '../lib/auth';
 
-const initialState = {
-  role: 'Checker', // Set default role
-  name: 'Demo User', // Set default name
+const signedOutState = {
+  id: null,
+  name: '',
+  email: '',
+  role: null,
 };
 
 const userSlice = createSlice({
   name: 'user',
-  initialState,
+  initialState: { ...signedOutState, ...loadSessionUser() },
   reducers: {
     setUser(state, action) {
-      state.name = action.payload.name;
-      state.role = action.payload.role;
+      return { ...state, ...action.payload };
     },
-    logout(state) {
-      state.name = '';
-      state.role = null;
+    logout() {
+      return signedOutState;
     }
   },
 });

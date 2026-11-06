@@ -1,56 +1,86 @@
-import React, { useCallback } from "react";
+import React, { useState } from "react";
 import { useSelector, useDispatch } from "react-redux";
-import { setUser } from "../../slice/userSlice";
+import { ChevronDown, FileSignature, LogOut } from "lucide-react";
+import { clearSession } from "../../lib/auth";
+import { logout } from "../../slice/userSlice";
+import { closeAllModals, resetEditingState, setActiveTab } from "../../slice/uiSlice";
+import UnsavedChangesDialog from "../UnsavedChangesDialog";
+import { Avatar, AvatarFallback } from "./avatar";
+import { Badge } from "./badge";
+import { Button } from "./button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "./dropdown-menu";
+
+const getInitials = (name) =>
+  name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0].toUpperCase())
+    .join("");
 
 export default function Header() {
   const dispatch = useDispatch();
   const user = useSelector(state => state.user);
+  const isFormDirty = useSelector(state => state.ui.isFormDirty);
+  const [confirmingSignOut, setConfirmingSignOut] = useState(false);
 
-  const handleRoleChange = useCallback((newRole) => {
-    dispatch(setUser({ name: user.name, role: newRole }));
-  }, [dispatch, user.name]);
-
+  const signOut = () => {
+    clearSession();
+    dispatch(closeAllModals());
+    dispatch(resetEditingState());
+    dispatch(setActiveTab("dashboard"));
+    dispatch(logout());
+  };
 
   return (
-    <header className="bg-white shadow-sm border-b border-gray-200">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center h-16">
-          <div className="flex items-center">
-            <div className="flex items-center space-x-2">
-              <svg className="h-8 w-8 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              <h1 className="text-xl font-semibold text-gray-900">Legal Agreement ERP</h1>
-            </div>
-          </div>
-          
-          <div className="flex items-center space-x-4">
-            {user.name && (
-              <div className="flex items-center space-x-2">
-                <div className="relative">
-                  <select
-                    value={user.role}
-                    onChange={(e) => handleRoleChange(e.target.value)}
-                    className="appearance-none bg-white border border-gray-300 rounded-md px-3 py-2 pr-8 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="Checker">Checker</option>
-                    <option value="Approver">Approver</option>
-                  </select>
-                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700">
-                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                  </div>
-                </div>
-                
-                <button className="bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors">
-                  {user.role}
-                </button>
-              </div>
-            )}
-          </div>
+    <header className="border-b bg-background">
+      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+        <div className="flex items-center gap-3">
+          <span className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+            <FileSignature className="size-5" />
+          </span>
+          <span className="text-lg font-semibold text-foreground">Legal Agreement ERP</span>
         </div>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" className="h-10 gap-2 px-2">
+              <Avatar className="size-8">
+                <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
+              </Avatar>
+              <span className="hidden text-left sm:block">
+                <span className="block text-sm leading-tight font-medium">{user.name}</span>
+                <span className="block text-xs leading-tight font-normal text-muted-foreground">{user.role}</span>
+              </span>
+              <ChevronDown className="size-4 text-muted-foreground" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-64">
+            <DropdownMenuLabel className="font-normal">
+              <p className="text-sm font-medium text-foreground">{user.name}</p>
+              <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+              <Badge variant="secondary" className="mt-2">{user.role}</Badge>
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => (isFormDirty ? setConfirmingSignOut(true) : signOut())}>
+              <LogOut className="size-4" />
+              Sign out
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
+      <UnsavedChangesDialog
+        open={confirmingSignOut}
+        onCancel={() => setConfirmingSignOut(false)}
+        onDiscard={signOut}
+      />
     </header>
   );
-} 
+}

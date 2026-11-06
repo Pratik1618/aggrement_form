@@ -1,5 +1,6 @@
 import React, { useEffect } from "react";
 import { useSelector, useDispatch } from "react-redux";
+import { Loader2 } from "lucide-react";
 import AgreementForm from "./forms/AgreementForm";
 import AgreementTable from "./forms/AgreementTable";
 import AgreementCards from "./forms/AgreementCards";
@@ -9,8 +10,11 @@ import Header from "./components/ui/Header";
 import TabNav from "./components/ui/TabNav";
 import Dashboard from "./components/Dashboard";
 import History from "./components/History";
+import LoginPage from "./components/LoginPage";
 import ViewModal from "./components/ViewModal";
 import ErrorBoundary from "./components/ErrorBoundary";
+import { Toaster } from "./components/ui/sonner";
+import { TooltipProvider } from "./components/ui/tooltip";
 import { setEditingAgreement, setActiveTab, setViewModal, setShowAddendumForm, setEditingAddendum } from "./slice/uiSlice";
 import { createAddendum, updateAddendumStatus } from "./slice/addendumsSlice";
 import { updateAgreementStatus } from "./slice/agreementsSlice";
@@ -22,21 +26,10 @@ export default function App() {
   // Use individual selectors to prevent infinite re-renders
   const user = useSelector(state => state.user);
   const activeTab = useSelector(state => state.ui.activeTab);
-  const editingAgreement = useSelector(state => state.ui.editingAgreement);
   const showAddendumForm = useSelector(state => state.ui.showAddendumForm);
   const viewModal = useSelector(state => state.ui.viewModal);
   const agreements = useSelector(state => state.agreements.agreements);
-  const addendums = useSelector(state => state.addendums.addendums);
-  
-  // Debug logging for addendum form state
-  console.log("App render - showAddendumForm:", showAddendumForm);
-  console.log("App render - ui state:", useSelector(state => state.ui));
-  console.log("App render - addendums:", addendums);
-  console.log("App render - addendums length:", addendums?.length);
-  
-  // Debug logging
-  console.log('App render - user:', user, 'activeTab:', activeTab, 'agreements:', agreements);
-  
+
   // Redirect Approver users away from "new" tab to "agreements" tab
   useEffect(() => {
     if (user.role === "Approver" && activeTab === "new") {
@@ -44,40 +37,36 @@ export default function App() {
     }
   }, [user.role, activeTab, dispatch]);
 
+  if (!user.role) {
+    return <LoginPage />;
+  }
+
   // Check if agreements data is loaded
   if (!agreements || agreements.length === 0) {
-    console.log("Showing loading screen - agreements:", agreements);
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="flex min-h-screen items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading agreements data...</p>
-          <p className="text-sm text-gray-500 mt-2">Please wait while the system initializes...</p>
+          <Loader2 className="mx-auto mb-4 size-10 animate-spin text-primary" />
+          <p className="text-muted-foreground">Loading agreements data...</p>
+          <p className="mt-2 text-sm text-muted-foreground">Please wait while the system initializes...</p>
         </div>
       </div>
     );
   }
 
-  console.log("Rendering main app - activeTab:", activeTab, "user.role:", user.role);
-                
-                return (
-    <div className="min-h-screen bg-gray-50">
+  return (
+    <TooltipProvider>
+      <div className="min-h-screen bg-muted/40">
       <Header />
       <TabNav />
-      
+
       <main>
         {activeTab === "dashboard" && <Dashboard onNavigateToAgreements={() => dispatch(setActiveTab("agreements"))} />}
-        {activeTab === "new" && (() => {
-          console.log("Rendering AgreementForm - activeTab:", activeTab);
-          console.log("editingAgreement:", editingAgreement);
-          console.log("isEditing:", !!editingAgreement);
-          
-          return (
-            <ErrorBoundary>
-              <AgreementForm />
-            </ErrorBoundary>
-          );
-        })()}
+        {activeTab === "new" && (
+          <ErrorBoundary>
+            <AgreementForm />
+          </ErrorBoundary>
+        )}
         {activeTab === "agreements" && (
           user.role === "Checker" ? (
             <AgreementCards 
@@ -109,8 +98,6 @@ export default function App() {
                 dispatch(setActiveTab("new"));
               }}
               onCreateAddendum={(agreement, type) => {
-                console.log("Creating addendum for agreement:", agreement, "type:", type);
-                
                 if (type === 'addendum') {
                   // Create a new addendum object for the form
                   const newAddendum = {
@@ -169,11 +156,13 @@ export default function App() {
 
       {/* Modals */}
       {showAddendumForm && <AddendumForm />}
-      <ViewModal 
-        open={viewModal.open} 
+      <ViewModal
+        open={viewModal.open}
         agreement={viewModal.agreement}
         onClose={() => dispatch(setViewModal({ open: false, agreement: null }))}
       />
-     </div>
-   );
- }
+      </div>
+      <Toaster />
+    </TooltipProvider>
+  );
+}

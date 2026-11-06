@@ -1,806 +1,447 @@
 import React, { useState, useEffect } from "react";
 import { useSelector, useDispatch } from "react-redux";
+import { differenceInCalendarDays, format } from "date-fns";
+import {
+  FileText,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  AlarmClock,
+  FileEdit,
+  CalendarCheck,
+  BarChart3,
+  AlertTriangle,
+  RefreshCw,
+  Eye,
+  Download,
+  Plus,
+  ArrowRight,
+} from "lucide-react";
 import { setEditingAgreement, setActiveTab, setViewModal } from "../slice/uiSlice";
 import { generateNotifications } from "../slice/notificationsSlice";
+import { downloadAgreementPdf, getBranchNames } from "../lib/agreementPdf";
+import { formatDate, toDate } from "../lib/dates";
+import { statusBadgeClass } from "../lib/status";
 import ExpiringContractModal from "./ExpiringContractModal";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "./ui/card";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+
+const EXPIRY_WINDOW_DAYS = 30;
+const PENDING_STATUSES = ["Execution Pending", "Under Review", "Pending Review"];
+const PROCESSED_STATUSES = ["Approved", "Executed", "Rejected"];
+
+const EXPIRY_URGENCY_CLASSES = {
+  Expired: "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400",
+  Critical: "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400",
+  Urgent: "bg-orange-100 text-orange-700 dark:bg-orange-500/15 dark:text-orange-400",
+  Warning: "bg-yellow-100 text-yellow-700 dark:bg-yellow-500/15 dark:text-yellow-400",
+};
+
+const DEFAULT_CLAUSE_TITLES = [
+  "Term and termination (Duration)",
+  "Payment Terms",
+  "Penalty",
+  "Minimum Wages",
+  "Costing - Salary Breakup",
+  "SLA",
+  "Indemnity",
+  "Insurance",
+];
+
+const emptyClauses = () => DEFAULT_CLAUSE_TITLES.map((title) => ({ title, content: "", file: null }));
+
+const emptyContactInfo = () => ({
+  name: "",
+  email: "",
+  phone: "",
+  clientName: "",
+  clientEmail: "",
+  clientPhone: "",
+  ismartName: "",
+  ismartEmail: "",
+  ismartPhone: "",
+});
+
+const getDaysUntilExpiry = (endDate) => differenceInCalendarDays(toDate(endDate), new Date());
+
+const getExpiryUrgency = (days) => {
+  if (days < 0) return "Expired";
+  if (days <= 7) return "Critical";
+  if (days <= 14) return "Urgent";
+  return "Warning";
+};
+
+const getExpiryLabel = (days) => {
+  if (days < 0) return `Expired ${Math.abs(days)} day${days === -1 ? "" : "s"} ago`;
+  if (days === 0) return "Expires today";
+  return `${days} day${days === 1 ? "" : "s"} left`;
+};
+
+function StatCard({ label, value, hint, icon, alert = false }) {
+  const Icon = icon;
+  return (
+    <Card size="sm">
+      <CardContent className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-sm text-muted-foreground">{label}</p>
+          <p className={`mt-1 text-2xl font-semibold ${alert && value > 0 ? "text-destructive" : "text-foreground"}`}>
+            {value}
+          </p>
+          {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
+        </div>
+        <Icon className="size-4 shrink-0 text-muted-foreground" />
+      </CardContent>
+    </Card>
+  );
+}
+
+function EmptyState({ children }) {
+  return <p className="py-8 text-center text-sm text-muted-foreground">{children}</p>;
+}
+
+function ExpiryAlertBanner({ expiredCount, expiringCount, criticalCount, onViewAll }) {
+  if (expiredCount === 0 && expiringCount === 0) return null;
+
+  const parts = [];
+  if (expiredCount > 0) parts.push(`${expiredCount} contract${expiredCount === 1 ? " has" : "s have"} expired`);
+  if (expiringCount > 0) parts.push(`${expiringCount} expiring within ${EXPIRY_WINDOW_DAYS} days`);
+
+  const isSevere = expiredCount > 0 || criticalCount > 0;
+
+  return (
+    <div
+      role="status"
+      className={`mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4 ${
+        isSevere
+          ? "border-destructive/30 bg-destructive/5"
+          : "border-amber-300 bg-amber-50 dark:border-amber-500/30 dark:bg-amber-500/10"
+      }`}
+    >
+      <div className="flex items-center gap-3">
+        <AlertTriangle className={`size-5 shrink-0 ${isSevere ? "text-destructive" : "text-amber-600 dark:text-amber-400"}`} />
+        <div>
+          <p className="text-sm font-medium text-foreground">{parts.join(", ")}</p>
+          {criticalCount > 0 && (
+            <p className="text-sm text-muted-foreground">
+              {criticalCount} need{criticalCount === 1 ? "s" : ""} attention within 7 days
+            </p>
+          )}
+        </div>
+      </div>
+      <Button variant="outline" size="sm" onClick={onViewAll}>
+        View agreements
+        <ArrowRight className="size-4" />
+      </Button>
+    </div>
+  );
+}
+
+function PageHeading({ name, subtitle, action }) {
+  return (
+    <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+      <div>
+        <h1 className="text-2xl font-semibold text-foreground">Welcome back, {name}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
+      </div>
+      {action}
+    </div>
+  );
+}
 
 export default function Dashboard({ onNavigateToAgreements }) {
   const dispatch = useDispatch();
-  
-  // Use individual selectors to prevent infinite re-renders
+
   const agreements = useSelector(state => state.agreements.agreements);
   const addendums = useSelector(state => state.addendums.addendums);
   const user = useSelector(state => state.user);
-  const notifications = useSelector(state => state.notifications);
-  
+
   const agreementsList = agreements || [];
   const addendumsList = addendums || [];
-  const userRole = user.role;
 
-  // State for modals
   const [viewingExpiringContract, setViewingExpiringContract] = useState(null);
   const [isRenewing, setIsRenewing] = useState(false);
 
-  // Generate notifications when agreements change
   useEffect(() => {
-    if (agreementsList.length > 0) {
-      dispatch(generateNotifications({ agreements: agreementsList }));
+    if (agreements?.length > 0) {
+      dispatch(generateNotifications({ agreements }));
     }
-  }, [agreementsList, dispatch]);
+  }, [agreements, dispatch]);
 
-  // Handler functions for buttons
   const handleViewAgreement = (agreement) => {
     dispatch(setViewModal({ open: true, agreement }));
   };
 
-  const handleViewExpiringContract = (agreement) => {
-    setViewingExpiringContract(agreement);
-  };
-
-  const handleCloseExpiringContract = () => {
-    setViewingExpiringContract(null);
-  };
-
   const handleEditAgreement = (agreement) => {
-    console.log("Edit button clicked for agreement:", agreement);
-    
-    // Ensure all required fields exist for editing
-    const completeAgreement = {
+    dispatch(setEditingAgreement({
       ...agreement,
-      selectedDepartment: agreement.selectedDepartment || '',
-      agreementType: agreement.agreementType || 'Client Draft',
-      startDate: agreement.startDate || new Date().toISOString().split('T')[0],
+      selectedDepartment: agreement.selectedDepartment || "",
+      agreementType: agreement.agreementType || "Client Draft",
+      startDate: agreement.startDate || new Date().toISOString().split("T")[0],
       openAgreement: agreement.openAgreement || false,
-      remarks: agreement.remarks || '',
-      entityType: agreement.entityType || 'single',
-      groupCompanies: agreement.groupCompanies || [''],
-      importantClauses: agreement.importantClauses || [
-        { title: 'Term and termination (Duration)', content: '', file: null },
-        { title: 'Payment Terms', content: '', file: null },
-        { title: 'Penalty', content: '', file: null },
-        { title: 'Minimum Wages', content: '', file: null },
-        { title: 'Costing - Salary Breakup', content: '', file: null },
-        { title: 'SLA', content: '', file: null },
-        { title: 'Indemnity', content: '', file: null },
-        { title: 'Insurance', content: '', file: null }
-      ],
-      contactInfo: agreement.contactInfo || {
-        name: '',
-        email: '',
-        phone: '',
-        clientName: '',
-        clientEmail: '',
-        clientPhone: '',
-        ismartName: '',
-        ismartEmail: '',
-        ismartPhone: ''
-      }
-    };
-    
-    console.log("Complete agreement for editing:", completeAgreement);
-    console.log("Dispatching setEditingAgreement...");
-    dispatch(setEditingAgreement(completeAgreement));
-    console.log("Dispatching setActiveTab('new')...");
+      remarks: agreement.remarks || "",
+      entityType: agreement.entityType || "single",
+      groupCompanies: agreement.groupCompanies || [""],
+      importantClauses: agreement.importantClauses || emptyClauses(),
+      contactInfo: agreement.contactInfo || emptyContactInfo(),
+    }));
     dispatch(setActiveTab("new"));
-    console.log("Edit actions completed");
-  };
-
-  const handleDownloadAgreement = (agreement) => {
-    // Create a downloadable PDF or document
-    const agreementData = {
-      title: `Agreement - ${agreement.selectedClient}`,
-      content: `
-        Client: ${agreement.selectedClient}
-        Branches: ${getAllBranches(agreement)}
-        Status: ${agreement.status}
-        Submitted Date: ${agreement.submittedDate ? new Date(agreement.submittedDate).toLocaleDateString() : 'N/A'}
-        End Date: ${agreement.endDate ? new Date(agreement.endDate).toLocaleDateString() : 'N/A'}
-        
-        Agreement Details:
-        ${JSON.stringify(agreement, null, 2)}
-      `
-    };
-    
-    // Create and download file
-    const blob = new Blob([agreementData.content], { type: 'text/plain' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${agreement.selectedClient}_Agreement_${new Date().toISOString().split('T')[0]}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    window.URL.revokeObjectURL(url);
   };
 
   const handleRenewAgreement = (agreement) => {
-    console.log("Renew button clicked for agreement:", agreement);
-    
-    // Calculate new end date (1 year from current end date or 1 year from now)
-    const currentEndDate = agreement.endDate ? new Date(agreement.endDate) : new Date();
-    const newEndDate = new Date(currentEndDate.getTime() + 365 * 24 * 60 * 60 * 1000);
-    const daysLeft = Math.ceil((currentEndDate - new Date()) / (1000 * 60 * 60 * 24));
-    
-    // Create renewed agreement data for editing (like live URL)
-    const renewedAgreement = {
+    // A long-expired contract must still renew to an end date after the new start date.
+    const renewFrom = Math.max(toDate(agreement.endDate)?.getTime() || 0, Date.now());
+    const newEndDate = new Date(renewFrom + 365 * 24 * 60 * 60 * 1000);
+
+    setIsRenewing(true);
+    dispatch(setEditingAgreement({
       ...agreement,
-      // Update dates for renewal
-      startDate: new Date().toISOString().split('T')[0], // Start from today
-      endDate: newEndDate.toISOString().split('T')[0], // 1 year from current end date
-      // Mark as renewal
+      startDate: new Date().toISOString().split("T")[0],
+      endDate: format(newEndDate, "yyyy-MM-dd"),
       isRenewal: true,
       originalAgreementId: agreement.id,
       renewalDate: new Date().toISOString(),
-      // Update remarks to indicate renewal
-      remarks: `Renewal of agreement ${agreement.id} - ${agreement.remarks || ''}`,
-      // Reset upload statuses for renewal
+      remarks: `Renewal of agreement ${agreement.id} - ${agreement.remarks || ""}`,
       uploadStatuses: {
         LOI: { uploaded: false, file: null },
         WO: { uploaded: false, file: null },
         PO: { uploaded: false, file: null },
-        EmailApproval: { uploaded: false, file: null }
+        EmailApproval: { uploaded: false, file: null },
       },
-      // Ensure all required fields exist
-      selectedDepartment: agreement.selectedDepartment || '',
-      agreementType: agreement.agreementType || 'Client Draft',
+      selectedDepartment: agreement.selectedDepartment || "",
+      agreementType: agreement.agreementType || "Client Draft",
       openAgreement: agreement.openAgreement || false,
-      entityType: agreement.entityType || 'single',
-      groupCompanies: agreement.groupCompanies || [''],
-      // Ensure selectedBranches is an array of strings
-      selectedBranches: Array.isArray(agreement.selectedBranches) 
-        ? agreement.selectedBranches.map(branch => typeof branch === 'string' ? branch : branch.name)
+      entityType: agreement.entityType || "single",
+      groupCompanies: agreement.groupCompanies || [""],
+      selectedBranches: Array.isArray(agreement.selectedBranches)
+        ? agreement.selectedBranches.map((branch) => (typeof branch === "string" ? branch : branch.name))
         : [],
-      importantClauses: agreement.importantClauses || [
-        { title: 'Term and termination (Duration)', content: '', file: null },
-        { title: 'Payment Terms', content: '', file: null },
-        { title: 'Penalty', content: '', file: null },
-        { title: 'Minimum Wages', content: '', file: null },
-        { title: 'Costing - Salary Breakup', content: '', file: null },
-        { title: 'SLA', content: '', file: null },
-        { title: 'Indemnity', content: '', file: null },
-        { title: 'Insurance', content: '', file: null }
-      ],
-      contactInfo: agreement.contactInfo || {
-        name: '',
-        email: '',
-        phone: '',
-        clientName: '',
-        clientEmail: '',
-        clientPhone: '',
-        ismartName: '',
-        ismartEmail: '',
-        ismartPhone: ''
-      }
-    };
-    
-    console.log("Created renewed agreement for editing:", renewedAgreement);
-    
-    // Set loading state
-    setIsRenewing(true);
-    
-    // Set the agreement for editing (like live URL)
-    dispatch(setEditingAgreement(renewedAgreement));
-    
-    // Navigate to the form for editing
+      importantClauses: agreement.importantClauses || emptyClauses(),
+      contactInfo: agreement.contactInfo || emptyContactInfo(),
+    }));
+
     requestAnimationFrame(() => {
       dispatch(setActiveTab("new"));
       setIsRenewing(false);
-      console.log("Renewal form opened for editing");
     });
   };
 
+  const contractsNeedingAttention = agreementsList
+    .filter((agreement) => (
+      !agreement.openAgreement &&
+      toDate(agreement.endDate) &&
+      getDaysUntilExpiry(agreement.endDate) <= EXPIRY_WINDOW_DAYS
+    ))
+    .sort((a, b) => getDaysUntilExpiry(a.endDate) - getDaysUntilExpiry(b.endDate));
 
-  // Calculate dashboard metrics - EXACTLY like the old UI image
-  const totalSubmissions = agreementsList.length;
-  const pendingReview = agreementsList.filter(agreement => 
-    agreement.status === "Execution Pending" || agreement.status === "Under Review"
-  ).length;
-  const approved = agreementsList.filter(agreement => agreement.status === "Approved").length;
-  const rejected = agreementsList.filter(agreement => agreement.status === "Rejected").length;
-  const expiringSoon = agreementsList.filter(agreement => {
-    if (!agreement.endDate) return false;
-    const endDate = new Date(agreement.endDate);
-    const today = new Date();
-    const daysUntilExpiry = Math.ceil((endDate - today) / (1000 * 60 * 60 * 24));
-    return daysUntilExpiry <= 30 && daysUntilExpiry > 0;
+  const expiredCount = contractsNeedingAttention.filter((a) => getDaysUntilExpiry(a.endDate) < 0).length;
+  const expiringCount = contractsNeedingAttention.length - expiredCount;
+  const criticalCount = contractsNeedingAttention.filter((a) => {
+    const days = getDaysUntilExpiry(a.endDate);
+    return days >= 0 && days <= 7;
   }).length;
-  const totalAddendums = addendumsList.length;
-  const contractsWithAddendums = agreementsList.filter(agreement => 
-    addendumsList.some(addendum => addendum.parentAgreementId === agreement.id)
+
+  const pendingAgreements = agreementsList.filter((a) => PENDING_STATUSES.includes(a.status));
+  const contractsWithAddendums = agreementsList.filter((agreement) =>
+    addendumsList.some((addendum) => addendum.parentAgreementId === agreement.id)
   ).length;
 
-  // Get recent submissions (last 5) - FIXED: Create copy before sorting
-  const recentSubmissions = [...agreementsList]
-    .sort((a, b) => new Date(b.submittedDate) - new Date(a.submittedDate))
-    .slice(0, 5);
+  const banner = (
+    <ExpiryAlertBanner
+      expiredCount={expiredCount}
+      expiringCount={expiringCount}
+      criticalCount={criticalCount}
+      onViewAll={onNavigateToAgreements}
+    />
+  );
 
-  // Get expiring contracts - EXACTLY like the old UI image (5 contracts)
-  const expiringContracts = [
-    {
-      id: "demo-1",
-      selectedClient: "TechCorp Solutions",
-      selectedBranches: [{ name: "Mumbai Central" }, { name: "Pune" }],
-      endDate: "2025-09-04",
-      demo: true,
-      selectedDepartment: "IT Services",
-      agreementType: "Client Draft",
-      startDate: "2024-09-04",
-      openAgreement: false,
-      remarks: "Demo contract for testing",
-      entityType: "single",
-      groupCompanies: [""],
-      importantClauses: [
-        { title: 'Term and termination (Duration)', content: '2 years', file: null },
-        { title: 'Payment Terms', content: 'Monthly', file: null },
-        { title: 'Penalty', content: '5% per month', file: null },
-        { title: 'Minimum Wages', content: 'As per law', file: null },
-        { title: 'Costing - Salary Breakup', content: 'Standard rates', file: null },
-        { title: 'SLA', content: '99.9% uptime', file: null },
-        { title: 'Indemnity', content: 'Standard terms', file: null },
-        { title: 'Insurance', content: 'Required', file: null }
-      ],
-      contactInfo: {
-        name: "John Doe",
-        email: "john@techcorp.com",
-        phone: "9876543210",
-        clientName: "TechCorp Solutions",
-        clientEmail: "contact@techcorp.com",
-        clientPhone: "9876543210",
-        ismartName: "iSmart Solutions",
-        ismartEmail: "contact@ismart.com",
-        ismartPhone: "9876543210"
-      }
-    },
-    {
-      id: "demo-2", 
-      selectedClient: "Global Industries Ltd",
-      selectedBranches: [{ name: "Delhi" }, { name: "Gurgaon" }, { name: "Noida" }],
-      endDate: "2025-09-09",
-      demo: true,
-      selectedDepartment: "Manufacturing",
-      agreementType: "iSmart Draft",
-      startDate: "2024-09-09",
-      openAgreement: false,
-      remarks: "Demo contract for testing",
-      entityType: "single",
-      groupCompanies: [""],
-      importantClauses: [
-        { title: 'Term and termination (Duration)', content: '3 years', file: null },
-        { title: 'Payment Terms', content: 'Quarterly', file: null },
-        { title: 'Penalty', content: '3% per month', file: null },
-        { title: 'Minimum Wages', content: 'As per law', file: null },
-        { title: 'Costing - Salary Breakup', content: 'Standard rates', file: null },
-        { title: 'SLA', content: '99.5% uptime', file: null },
-        { title: 'Indemnity', content: 'Standard terms', file: null },
-        { title: 'Insurance', content: 'Required', file: null }
-      ],
-      contactInfo: {
-        name: "Jane Smith",
-        email: "jane@globalindustries.com",
-        phone: "9876543211",
-        clientName: "Global Industries Ltd",
-        clientEmail: "contact@globalindustries.com",
-        clientPhone: "9876543211",
-        ismartName: "iSmart Solutions",
-        ismartEmail: "contact@ismart.com",
-        ismartPhone: "9876543210"
-      }
-    },
-    {
-      id: "demo-3",
-      selectedClient: "Innovation Systems",
-      selectedBranches: [{ name: "Bangalore" }],
-      endDate: "2025-09-15",
-      demo: true,
-      selectedDepartment: "Software Development",
-      agreementType: "Client Draft",
-      startDate: "2024-09-15",
-      openAgreement: false,
-      remarks: "Demo contract for testing",
-      entityType: "single",
-      groupCompanies: [""],
-      importantClauses: [
-        { title: 'Term and termination (Duration)', content: '1 year', file: null },
-        { title: 'Payment Terms', content: 'Monthly', file: null },
-        { title: 'Penalty', content: '2% per month', file: null },
-        { title: 'Minimum Wages', content: 'As per law', file: null },
-        { title: 'Costing - Salary Breakup', content: 'Standard rates', file: null },
-        { title: 'SLA', content: '99.8% uptime', file: null },
-        { title: 'Indemnity', content: 'Standard terms', file: null },
-        { title: 'Insurance', content: 'Required', file: null }
-      ],
-      contactInfo: {
-        name: "Mike Johnson",
-        email: "mike@innovationsystems.com",
-        phone: "9876543212",
-        clientName: "Innovation Systems",
-        clientEmail: "contact@innovationsystems.com",
-        clientPhone: "9876543212",
-        ismartName: "iSmart Solutions",
-        ismartEmail: "contact@ismart.com",
-        ismartPhone: "9876543210"
-      }
-    },
-    {
-      id: "demo-4",
-      selectedClient: "Digital Solutions Pvt Ltd",
-      selectedBranches: [{ name: "Chennai" }, { name: "Coimbatore" }],
-      endDate: "2025-09-22",
-      demo: true,
-      selectedDepartment: "Digital Services",
-      agreementType: "iSmart Draft",
-      startDate: "2024-09-22",
-      openAgreement: false,
-      remarks: "Demo contract for testing",
-      entityType: "single",
-      groupCompanies: [""],
-      importantClauses: [
-        { title: 'Term and termination (Duration)', content: '2 years', file: null },
-        { title: 'Payment Terms', content: 'Monthly', file: null },
-        { title: 'Penalty', content: '4% per month', file: null },
-        { title: 'Minimum Wages', content: 'As per law', file: null },
-        { title: 'Costing - Salary Breakup', content: 'Standard rates', file: null },
-        { title: 'SLA', content: '99.7% uptime', file: null },
-        { title: 'Indemnity', content: 'Standard terms', file: null },
-        { title: 'Insurance', content: 'Required', file: null }
-      ],
-      contactInfo: {
-        name: "Sarah Wilson",
-        email: "sarah@digitalsolutions.com",
-        phone: "9876543213",
-        clientName: "Digital Solutions Pvt Ltd",
-        clientEmail: "contact@digitalsolutions.com",
-        clientPhone: "9876543213",
-        ismartName: "iSmart Solutions",
-        ismartEmail: "contact@ismart.com",
-        ismartPhone: "9876543210"
-      }
-    },
-    {
-      id: "demo-5",
-      selectedClient: "Future Technologies",
-      selectedBranches: [{ name: "Hyderabad" }],
-      endDate: "2025-09-28",
-      demo: true,
-      selectedDepartment: "Technology",
-      agreementType: "Client Draft",
-      startDate: "2024-09-28",
-      openAgreement: false,
-      remarks: "Demo contract for testing",
-      entityType: "single",
-      groupCompanies: [""],
-      importantClauses: [
-        { title: 'Term and termination (Duration)', content: '3 years', file: null },
-        { title: 'Payment Terms', content: 'Quarterly', file: null },
-        { title: 'Penalty', content: '3% per month', file: null },
-        { title: 'Minimum Wages', content: 'As per law', file: null },
-        { title: 'Costing - Salary Breakup', content: 'Standard rates', file: null },
-        { title: 'SLA', content: '99.9% uptime', file: null },
-        { title: 'Indemnity', content: 'Standard terms', file: null },
-        { title: 'Insurance', content: 'Required', file: null }
-      ],
-      contactInfo: {
-        name: "David Brown",
-        email: "david@futuretech.com",
-        phone: "9876543214",
-        clientName: "Future Technologies",
-        clientEmail: "contact@futuretech.com",
-        clientPhone: "9876543214",
-        ismartName: "iSmart Solutions",
-        ismartEmail: "contact@ismart.com",
-        ismartPhone: "9876543210"
-      }
-    }
-  ];
+  const expiringCard = (
+    <Card>
+      <CardHeader>
+        <CardTitle>Contract Expiry</CardTitle>
+        <CardDescription>Expired contracts and those ending within {EXPIRY_WINDOW_DAYS} days</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {contractsNeedingAttention.length === 0 && <EmptyState>No contracts need attention right now</EmptyState>}
+        {contractsNeedingAttention.map((agreement) => {
+          const days = getDaysUntilExpiry(agreement.endDate);
+          const urgency = getExpiryUrgency(days);
 
-  // Get days until expiry
-  const getDaysUntilExpiry = (endDate) => {
-    const end = new Date(endDate);
+          return (
+            <div key={agreement.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <h3 className="font-medium">{agreement.selectedClient}</h3>
+                  {agreement.isRenewal && (
+                    <Badge variant="outline" className="gap-1">
+                      <RefreshCw className="size-3" />
+                      Renewal
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-sm text-muted-foreground">{getBranchNames(agreement)}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Ends {formatDate(agreement.endDate)} • {getExpiryLabel(days)}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Badge className={EXPIRY_URGENCY_CLASSES[urgency]}>{urgency}</Badge>
+                <Button
+                  size="icon-sm"
+                  variant="outline"
+                  aria-label={`View ${agreement.selectedClient} expiry details`}
+                  title="View"
+                  onClick={() => setViewingExpiringContract(agreement)}
+                >
+                  <Eye className="size-4" />
+                </Button>
+                {user.role === "Checker" && (
+                  <Button size="sm" disabled={isRenewing} onClick={() => handleRenewAgreement(agreement)}>
+                    {isRenewing ? "Renewing..." : "Renew"}
+                  </Button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
+  );
+
+  const expiryModal = (
+    <ExpiringContractModal
+      open={!!viewingExpiringContract}
+      agreement={viewingExpiringContract}
+      onClose={() => setViewingExpiringContract(null)}
+    />
+  );
+
+  if (user.role === "Approver") {
     const today = new Date();
-    return Math.ceil((end - today) / (1000 * 60 * 60 * 24));
-  };
+    const approvedToday = agreementsList.filter((a) => {
+      const approvedOn = toDate(a.approvedDate);
+      return approvedOn && differenceInCalendarDays(approvedOn, today) === 0;
+    }).length;
+    const totalProcessed = agreementsList.filter((a) => PROCESSED_STATUSES.includes(a.status)).length;
 
-  // Get expiry status - EXACTLY like the old UI image
-  const getExpiryStatus = (days) => {
-    if (days <= 7) return { text: "Critical", color: "bg-red-100 text-red-700" };
-    if (days <= 14) return { text: "Urgent", color: "bg-orange-100 text-orange-700" };
-    return { text: "Warning", color: "bg-yellow-100 text-yellow-700" };
-  };
-
-  // Get status badge color
-  const getStatusBadge = (status) => {
-    switch (status) {
-      case "Execution Pending":
-        return "bg-orange-100 text-orange-700";
-      case "Executed":
-        return "bg-orange-100 text-orange-700";
-      case "Under Process with Client":
-        return "bg-orange-100 text-orange-700";
-      case "Approved":
-        return "bg-green-100 text-green-700";
-      case "Rejected":
-        return "bg-red-100 text-red-700";
-      default:
-        return "bg-gray-100 text-gray-700";
-    }
-  };
-
-  // Get all branches for display
-  const getAllBranches = (agreement) => {
-    if (!agreement.selectedBranches || agreement.selectedBranches.length === 0) {
-      return "No branches specified";
-    }
-    return agreement.selectedBranches.map(branch => branch.name).join(", ");
-  };
-
-  // Handle View All Contracts button click - Navigate to Agreements tab
-  const handleViewAllContracts = () => {
-    if (onNavigateToAgreements) {
-      onNavigateToAgreements();
-    }
-  };
-
-  // APPROVER ROLE DASHBOARD - EXACTLY like the reference image
-  if (userRole === "Approver") {
     return (
-      <div className="max-w-7xl mx-auto px-6 py-8">
-        {/* Contract Expiry Alert - EXACTLY like the reference image */}
-        <div className="bg-gradient-to-r from-orange-50 to-red-50 border-l-4 border-orange-400 p-4 mb-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <svg className="h-5 w-5 text-orange-400" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                </svg>
-              </div>
-              <div className="ml-3">
-                <p className="text-sm text-orange-700">
-                  <span className="font-medium">Contract Expiry Alert:</span> 2 contracts expiring soon
-                </p>
-                <p className="text-sm text-orange-600">
-                  1 contract expiring within 7 days
-                </p>
-              </div>
-            </div>
-            <button 
-              onClick={handleViewAllContracts}
-              className="bg-orange-600 text-white px-4 py-2 rounded-md hover:bg-orange-700 transition-colors text-sm font-medium"
-            >
-              View All Contracts
-            </button>
-          </div>
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <PageHeading
+          name={user.name}
+          subtitle="Here is what needs your review today."
+          action={<Button onClick={onNavigateToAgreements}>Review agreements <ArrowRight className="size-4" /></Button>}
+        />
+        {banner}
+
+        <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+          <StatCard label="Pending Approval" value={pendingAgreements.length} icon={Clock} />
+          <StatCard label="Approved Today" value={approvedToday} icon={CalendarCheck} />
+          <StatCard label="Total Processed" value={totalProcessed} icon={BarChart3} />
+          <StatCard label="Expired" value={expiredCount} icon={AlertTriangle} alert />
+          <StatCard label="Expiring Soon" value={expiringCount} icon={AlarmClock} />
+          <StatCard label="Total Addendums" value={addendumsList.length} hint={`Across ${contractsWithAddendums} contracts`} icon={FileText} />
         </div>
 
-        {/* Summary Cards - EXACTLY 6 cards like the reference image */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 mb-8">
-          <div className="bg-white rounded-lg shadow p-4 text-center">
-            <div className="text-2xl font-bold text-gray-900">0</div>
-            <div className="text-sm text-gray-600">Pending Approval</div>
-            <div className="text-3xl mt-2">⏳</div>
-          </div>
-          
-          <div className="bg-white rounded-lg shadow p-4 text-center">
-            <div className="text-2xl font-bold text-gray-900">0</div>
-            <div className="text-sm text-gray-600">Approved Today</div>
-            <div className="text-3xl mt-2">📅</div>
-          </div>
-          
-          <div className="bg-white rounded-lg shadow p-4 text-center">
-            <div className="text-2xl font-bold text-gray-900">0</div>
-            <div className="text-sm text-gray-600">Total Processed</div>
-            <div className="text-3xl mt-2">📊</div>
-          </div>
-          
-          <div className="bg-white rounded-lg shadow p-4 text-center">
-            <div className="text-2xl font-bold text-gray-900">0</div>
-            <div className="text-sm text-gray-600">Overdue</div>
-            <div className="text-3xl mt-2">🔔</div>
-          </div>
-          
-          <div className="bg-white rounded-lg shadow p-4 text-center">
-            <div className="text-2xl font-bold text-gray-900">2</div>
-            <div className="text-sm text-gray-600">Expiring Soon</div>
-            <div className="text-3xl mt-2">⏰</div>
-          </div>
-          
-          <div className="bg-white rounded-lg shadow p-4 text-center">
-            <div className="text-2xl font-bold text-gray-900">2</div>
-            <div className="text-sm text-gray-600">Total Addendums</div>
-            <div className="text-3xl mt-2">📄</div>
-          </div>
-        </div>
-
-        {/* Main Content Panels - Two Columns */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Priority Actions Panel - EXACTLY like the reference image */}
-          <div className="bg-white rounded-lg shadow">
-            <div className="p-6 border-b border-gray-200">
-              <h2 className="text-xl font-semibold text-gray-900">Priority Actions</h2>
-              <p className="text-sm text-gray-600 mt-1">Agreements requiring your review</p>
-            </div>
-            
-            <div className="p-6">
-              <div className="text-center py-8">
-                <p className="text-gray-500 text-sm">No pending agreements</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Expiring Contracts Panel - EXACTLY like the reference image */}
-          <div className="bg-white rounded-lg shadow">
-            <div className="p-6 border-b border-gray-200">
-              <h2 className="text-xl font-semibold text-gray-900">Expiring Contracts</h2>
-              <p className="text-sm text-gray-600 mt-1">Contracts expiring within 30 days</p>
-            </div>
-            
-            <div className="p-6">
-              <div className="space-y-4">
-                {/* TechCorp Solutions - EXACTLY like the reference image */}
-                <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-2">
-                      <h3 className="font-medium text-gray-900">TechCorp Solutions</h3>
-                      <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">Demo</span>
-                    </div>
-                    <p className="text-sm text-gray-600">Mumbai Central, Pune</p>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Expires: 9/4/2025 • 3 days left • Demo Data
-                    </p>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Priority Actions</CardTitle>
+              <CardDescription>Agreements requiring your review</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {pendingAgreements.length === 0 && <EmptyState>No pending agreements</EmptyState>}
+              {pendingAgreements.map((agreement) => (
+                <div key={agreement.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4">
+                  <div className="min-w-0 flex-1">
+                    <h3 className="font-medium">{agreement.selectedClient}</h3>
+                    <p className="text-sm text-muted-foreground">{getBranchNames(agreement)}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Submitted {formatDate(agreement.submittedDate)}</p>
                   </div>
-                  
-                  <div className="flex items-center space-x-3">
-                    <span className="px-3 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700">
-                      Critical
-                    </span>
-                    <button className="bg-orange-600 text-white px-3 py-1 rounded text-xs hover:bg-orange-700 transition-colors">
-                      View
-                    </button>
+                  <div className="flex items-center gap-2">
+                    <Badge className={statusBadgeClass(agreement.status)}>{agreement.status}</Badge>
+                    <Button
+                      size="icon-sm"
+                      variant="outline"
+                      aria-label={`View ${agreement.selectedClient}`}
+                      title="View"
+                      onClick={() => handleViewAgreement(agreement)}
+                    >
+                      <Eye className="size-4" />
+                    </Button>
                   </div>
                 </div>
+              ))}
+            </CardContent>
+          </Card>
 
-                {/* Global Industries Ltd - EXACTLY like the reference image */}
-                <div className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-2">
-                      <h3 className="font-medium text-gray-900">Global Industries Ltd</h3>
-                      <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">Demo</span>
-                    </div>
-                    <p className="text-sm text-gray-600">Delhi, Gurgaon, Noida</p>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Expires: 9/9/2025 • 8 days left • Demo Data
-                    </p>
-                  </div>
-                  
-                  <div className="flex items-center space-x-3">
-                    <span className="px-3 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-700">
-                      Urgent
-                    </span>
-                    <button className="bg-orange-600 text-white px-3 py-1 rounded text-xs hover:bg-orange-700 transition-colors">
-                      View
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          {expiringCard}
         </div>
+        {expiryModal}
       </div>
     );
   }
 
-  // CHECKER ROLE DASHBOARD - Keep existing implementation unchanged
+  const recentSubmissions = [...agreementsList]
+    .sort((a, b) => (toDate(b.submittedDate)?.getTime() || 0) - (toDate(a.submittedDate)?.getTime() || 0))
+    .slice(0, 5);
+
   return (
-    <div className="max-w-7xl mx-auto px-6 py-8">
-
-      {/* Alert Banner - EXACTLY like the old UI image */}
-      <div className="bg-gradient-to-r from-orange-50 to-red-50 border-l-4 border-orange-400 p-4 mb-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center">
-            <div className="flex-shrink-0">
-              <svg className="h-5 w-5 text-orange-400" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-              </svg>
-            </div>
-            <div className="ml-3">
-              <p className="text-sm text-orange-700">
-                <span className="font-medium">Contract Expiry Alert:</span> {notifications.notifications.filter(n => n.type === 'expiry_warning').length} contracts expiring soon
-              </p>
-              <p className="text-sm text-orange-600">
-                {notifications.notifications.filter(n => n.type === 'expiry_warning' && n.priority === 'high').length} contract(s) expiring within 7 days
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Summary Cards - EXACTLY 7 cards like the old UI image */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-4 mb-8">
-        <div className="bg-white rounded-lg shadow p-4 text-center">
-          <div className="text-2xl font-bold text-black">{totalSubmissions}</div>
-          <div className="text-sm text-gray-600">Total Submissions</div>
-          <div className="text-3xl mt-2">📄</div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow p-4 text-center">
-          <div className="text-2xl font-bold text-red-600">{pendingReview}</div>
-          <div className="text-sm text-gray-600">Pending Review</div>
-          <div className="text-3xl mt-2">⏳</div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow p-4 text-center">
-          <div className="text-2xl font-bold text-green-600">{approved}</div>
-          <div className="text-sm text-gray-600">Approved</div>
-          <div className="text-3xl mt-2">✅</div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow p-4 text-center">
-          <div className="text-2xl font-bold text-red-600">{rejected}</div>
-          <div className="text-sm text-gray-600">Rejected</div>
-          <div className="text-3xl mt-2">❌</div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow p-4 text-center">
-          <div className="text-2xl font-bold text-red-600">{expiringSoon}</div>
-          <div className="text-sm text-gray-600">Expiring Soon</div>
-          <div className="text-3xl mt-2">⏰</div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow p-4 text-center">
-          <div className="text-2xl font-bold text-purple-600">{totalAddendums}</div>
-          <div className="text-sm text-gray-600">Total Addendums</div>
-          <div className="text-3xl mt-2">📝</div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow p-4 text-center">
-          <div className="text-2xl font-bold text-blue-600">{contractsWithAddendums}</div>
-          <div className="text-sm text-gray-600">Contracts with Addendums</div>
-          <div className="text-3xl mt-2">📄</div>
-        </div>
-      </div>
-
-      {/* Main Content Panels */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Recent Submissions Panel - EXACTLY like the old UI image */}
-        <div className="bg-white rounded-lg shadow">
-          <div className="p-6 border-b border-gray-200">
-            <h2 className="text-xl font-semibold text-gray-900">Recent Submissions</h2>
-            <p className="text-sm text-gray-600 mt-1">Your latest agreement submissions and their approval status</p>
-          </div>
-          
-          <div className="p-6">
-            <div className="space-y-4">
-              {recentSubmissions.map((agreement, index) => (
-                <div key={agreement.id || index} className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-2">
-                      <h3 className="font-medium text-gray-900">{agreement.selectedClient || `Client ${index + 1}`}</h3>
-                    </div>
-                    <p className="text-sm text-gray-600">{getAllBranches(agreement)}</p>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Submitted on: {agreement.submittedDate ? new Date(agreement.submittedDate).toLocaleDateString() : 'N/A'}
-                    </p>
-                  </div>
-                  
-                  <div className="flex items-center justify-between">
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusBadge(agreement.status)}`}>
-                      {agreement.status || "Pending Review"}
-                    </span>
-                    
-                    <div className="flex space-x-2">
-                      <button 
-                        onClick={() => handleViewAgreement(agreement)}
-                        className="bg-blue-600 text-white px-3 py-1 rounded text-xs hover:bg-blue-700 transition-colors"
-                      >
-                        View
-                      </button>
-                      <button 
-                        onClick={() => handleEditAgreement(agreement)}
-                        className="bg-yellow-500 text-white px-3 py-1 rounded text-xs hover:bg-yellow-600 transition-colors"
-                      >
-                        Edit
-                      </button>
-                      <button 
-                        onClick={() => handleDownloadAgreement(agreement)}
-                        className="bg-green-600 text-white px-3 py-1 rounded text-xs hover:bg-green-700 transition-colors"
-                      >
-                        Download
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Expiring Contracts Panel - EXACTLY like the old UI image */}
-        <div className="bg-white rounded-lg shadow">
-          <div className="p-6 border-b border-gray-200">
-            <h2 className="text-xl font-semibold text-gray-900">Expiring Contracts</h2>
-            <p className="text-sm text-gray-600 mt-1">Your contracts expiring within 30 days</p>
-          </div>
-          
-          <div className="p-6">
-            <div className="space-y-4">
-              {expiringContracts.map((agreement, index) => {
-                const daysLeft = getDaysUntilExpiry(agreement.endDate);
-                const status = getExpiryStatus(daysLeft);
-                
-                return (
-                  <div key={agreement.id || index} className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
-                    <div className="flex-1">
-                      <div className="flex items-center space-x-2">
-                        <h3 className="font-medium text-gray-900">{agreement.selectedClient}</h3>
-                        <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">Demo</span>
-                        {agreement.isRenewal && (
-                          <span className="text-xs bg-blue-100 text-blue-600 px-2 py-1 rounded flex items-center space-x-1">
-                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
-                            </svg>
-                            <span>Renewal</span>
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-sm text-gray-600">{getAllBranches(agreement)}</p>
-                      <p className="text-xs text-gray-500 mt-1">
-                        Expires: {new Date(agreement.endDate).toLocaleDateString()} • {daysLeft} days left • Demo Data
-                        {agreement.originalAgreementId && (
-                          <span className="ml-2 text-blue-600">• Renewal of {agreement.originalAgreementId}</span>
-                        )}
-                      </p>
-                    </div>
-                    
-                    <div className="flex items-center space-x-3">
-                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${status.color}`}>
-                        {status.text}
-                      </span>
-                      
-                      <div className="flex space-x-2">
-                        <button 
-                          onClick={() => handleViewExpiringContract(agreement)}
-                          className="bg-blue-600 text-white px-3 py-1 rounded text-xs hover:bg-blue-700 transition-colors"
-                        >
-                          View
-                        </button>
-                        <button 
-                          onClick={() => handleRenewAgreement(agreement)}
-                          disabled={isRenewing}
-                          className={`px-3 py-1 rounded text-xs transition-colors ${
-                            isRenewing 
-                              ? "bg-gray-400 text-white cursor-not-allowed"
-                              : agreement.isRenewal 
-                                ? "bg-orange-600 text-white hover:bg-orange-700" 
-                                : "bg-green-600 text-white hover:bg-green-700"
-                          }`}
-                          title={`Renew agreement with ${agreement.selectedClient}. New end date will be 1 year from current expiry.${
-                            agreement.isRenewal ? ' (This is already a renewal)' : ''
-                          }`}
-                        >
-                          {isRenewing ? 'Renewing...' : (agreement.isRenewal ? 'Renew Again' : 'Renew')}
-                        </button>
-                        <button 
-                          onClick={() => handleDownloadAgreement(agreement)}
-                          className="bg-purple-600 text-white px-3 py-1 rounded text-xs hover:bg-purple-700 transition-colors"
-                        >
-                          Download
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Expiring Contract Modal */}
-      <ExpiringContractModal
-        open={!!viewingExpiringContract}
-        agreement={viewingExpiringContract}
-        onClose={handleCloseExpiringContract}
+    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <PageHeading
+        name={user.name}
+        subtitle="Track your submissions and upcoming contract expiries."
+        action={<Button onClick={() => dispatch(setActiveTab("new"))}><Plus className="size-4" /> New agreement</Button>}
       />
-      
+      {banner}
+
+      <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+        <StatCard label="Total Submissions" value={agreementsList.length} icon={FileText} />
+        <StatCard label="Pending Review" value={pendingAgreements.length} icon={Clock} />
+        <StatCard label="Approved" value={agreementsList.filter((a) => a.status === "Approved").length} icon={CheckCircle2} />
+        <StatCard label="Rejected" value={agreementsList.filter((a) => a.status === "Rejected").length} icon={XCircle} alert />
+        <StatCard label="Expiring Soon" value={expiringCount} icon={AlarmClock} />
+        <StatCard label="Total Addendums" value={addendumsList.length} hint={`Across ${contractsWithAddendums} contracts`} icon={FileEdit} />
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent Submissions</CardTitle>
+            <CardDescription>Your latest agreement submissions and their approval status</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {recentSubmissions.length === 0 && <EmptyState>No submissions yet</EmptyState>}
+            {recentSubmissions.map((agreement, index) => (
+              <div key={agreement.id || index} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4">
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-medium">{agreement.selectedClient || `Client ${index + 1}`}</h3>
+                  <p className="text-sm text-muted-foreground">{getBranchNames(agreement)}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Submitted {formatDate(agreement.submittedDate)}</p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Badge className={statusBadgeClass(agreement.status || "Pending Review")}>
+                    {agreement.status || "Pending Review"}
+                  </Badge>
+                  <Button size="icon-sm" variant="outline" aria-label="View agreement" title="View" onClick={() => handleViewAgreement(agreement)}>
+                    <Eye className="size-4" />
+                  </Button>
+                  <Button size="icon-sm" variant="outline" aria-label="Edit agreement" title="Edit" onClick={() => handleEditAgreement(agreement)}>
+                    <FileEdit className="size-4" />
+                  </Button>
+                  <Button size="icon-sm" variant="outline" aria-label="Download agreement as PDF" title="Download PDF" onClick={() => downloadAgreementPdf(agreement)}>
+                    <Download className="size-4" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
+        {expiringCard}
+      </div>
+      {expiryModal}
     </div>
   );
 }
