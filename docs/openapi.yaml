@@ -940,9 +940,9 @@ components:
         uploaded:
           type: boolean
         file:
-          allOf:
+          oneOf:
             - $ref: '#/components/schemas/UploadedFileReference'
-          nullable: true
+            - type: 'null'
       required: [uploaded, file]
 
     ContactInfo:
@@ -987,9 +987,9 @@ components:
         isInitial:
           type: boolean
         file:
-          allOf:
+          oneOf:
             - $ref: '#/components/schemas/UploadedFileReference'
-          nullable: true
+            - type: 'null'
 
     ApprovalWorkflowStep:
       type: object
@@ -1176,13 +1176,13 @@ components:
                 uploaded:
                   type: boolean
                 file:
-                  allOf:
+                  oneOf:
                     - $ref: '#/components/schemas/UploadedFileReference'
-                  nullable: true
+                    - type: 'null'
             finalAgreement:
-              allOf:
+              oneOf:
                 - $ref: '#/components/schemas/UploadedFileReference'
-              nullable: true
+                - type: 'null'
             approvalWorkflow:
               $ref: '#/components/schemas/ApprovalWorkflow'
             createdAt:
